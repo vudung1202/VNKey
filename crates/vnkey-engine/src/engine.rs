@@ -140,6 +140,40 @@ impl Engine {
         get_character_code(self.opts.code_table, data)
     }
 
+    /// Test-only (differential harness): true if any `hook.char_data[0..
+    /// new_char_count]` cell from the most recently completed `handle_event`
+    /// call was sourced from a `GET`/`getCharacterCode` call that would read
+    /// its C++ `_codeTable` row out of bounds -- genuine C++ UB (see
+    /// `charset::cpp_index_would_be_oob`'s doc comment), not
+    /// reproducible/comparable behavior across the two engines.
+    ///
+    /// Every `char_data` writer in this crate that calls `self.get(...)`
+    /// (`insert_mark`/`insert_d`/`insert_aoe`/`insert_w`/`remove_mark`/
+    /// `check_grammar` in `marks.rs`, `check_quick_consonant` and friends
+    /// here) follows the same pattern: the last write to `char_data[j]`
+    /// reads `buf.word[buf.index - 1 - j]` in its final, post-mutation
+    /// state. That mapping is reused generically here instead of threading
+    /// an OOB check through every call site.
+    #[doc(hidden)]
+    pub fn debug_char_data_may_be_cpp_oob(&self) -> bool {
+        let n = self.hook.new_char_count as i32;
+        let mut j = 0;
+        while j < n {
+            let raw_index = self.buf.index - 1 - j;
+            if raw_index >= 0
+                && (raw_index as usize) < MAX_BUFF
+                && crate::charset::cpp_index_would_be_oob(
+                    self.opts.code_table,
+                    self.buf.word[raw_index as usize],
+                )
+            {
+                return true;
+            }
+            j += 1;
+        }
+        false
+    }
+
     #[inline]
     pub(crate) fn input_type(&self) -> InputType {
         self.opts.input_type
