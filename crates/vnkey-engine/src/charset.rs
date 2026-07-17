@@ -601,11 +601,84 @@ pub fn get_character_code(code_table: CodeTable, data: u32) -> u32 {
             return data; // not found
         };
         if data & TONE_MASK != 0 {
-            row[caps_elem as usize] as u32 | CHAR_CODE_MASK
+            match row.get(caps_elem as usize) {
+                Some(&code) => code as u32 | CHAR_CODE_MASK,
+                None => data,
+            }
         } else if data & TONEW_MASK != 0 {
-            row[(caps_elem + 2) as usize] as u32 | CHAR_CODE_MASK
+            // C++ indexes `row[capsElem + 2]` directly (Engine.cpp:551),
+            // which is undefined behavior for a row shorter than 4 elements
+            // -- e.g. KEY_D's row has only 2 entries ({Đ, đ}), so
+            // KEY_D|TONEW_MASK with no MARK bit indexes out of bounds in
+            // C++. We deliberately deviate: fall back to `data` unchanged
+            // instead of indexing out of bounds or panicking.
+            match row.get((caps_elem + 2) as usize) {
+                Some(&code) => code as u32 | CHAR_CODE_MASK,
+                None => data,
+            }
         } else {
             data // not found
+        }
+    }
+}
+
+/// Returns `true` if C++ `getCharacterCode` (`Engine.cpp:501-558`) would
+/// index its `vector<Uint16>` row out of bounds for this `(code_table,
+/// data)` cell -- undefined behavior in C++, so the differential test must
+/// exclude such cells rather than trust whatever the oracle happens to
+/// read.
+///
+/// Mirrors `get_character_code`'s index arithmetic exactly (same masks,
+/// same `mark_elem`/`caps_elem` computation) against the real Rust table
+/// row lengths, which are transcribed verbatim from the C++ `_codeTable[]`
+/// so row lengths match bit-for-bit.
+#[doc(hidden)]
+pub fn cpp_index_would_be_oob(code_table: CodeTable, data: u32) -> bool {
+    let caps_elem: i32 = if data & CAPS_MASK != 0 { 0 } else { 1 };
+    let mut key: u32 = data & CHAR_MASK;
+    let table = code_table_map(code_table);
+
+    if data & MARK_MASK != 0 {
+        let mut mark_elem: i32 = match data & MARK_MASK {
+            MARK1_MASK => 0,
+            MARK2_MASK => 2,
+            MARK3_MASK => 4,
+            MARK4_MASK => 6,
+            MARK5_MASK => 8,
+            _ => -2,
+        };
+        mark_elem += caps_elem;
+
+        if matches!(key as u16, KEY_A | KEY_O | KEY_U | KEY_E)
+            && (data & TONE_MASK) == 0
+            && (data & TONEW_MASK) == 0
+        {
+            mark_elem += 4;
+        }
+
+        if data & TONE_MASK != 0 {
+            key |= TONE_MASK;
+        } else if data & TONEW_MASK != 0 {
+            key |= TONEW_MASK;
+        }
+
+        let Some(row) = table.get(&key) else {
+            return false; // C++ "not found" early-return: no indexing happens
+        };
+        match usize::try_from(mark_elem) {
+            Ok(i) => i >= row.len(),
+            Err(_) => true, // negative index: definitely OOB
+        }
+    } else {
+        let Some(row) = table.get(&key) else {
+            return false; // "not found" early-return: no indexing happens
+        };
+        if data & TONE_MASK != 0 {
+            caps_elem as usize >= row.len()
+        } else if data & TONEW_MASK != 0 {
+            (caps_elem + 2) as usize >= row.len()
+        } else {
+            false // "not found" early-return: no indexing happens
         }
     }
 }
@@ -707,6 +780,56 @@ mod tests {
             get_character_code(CodeTable::Unicode, data),
             0x0110 | CHAR_CODE_MASK
         );
+    }
+
+    #[test]
+    fn d_with_tonew_mask_no_mark_does_not_panic_and_is_safe_fallback() {
+        // No MARK bit. TONEW_MASK set -> row[capsElem+2]. KEY_D's row has
+        // only 2 elements ({Đ, đ}), so index 2/3 is out of bounds -- this is
+        // exactly the C++ UB case the no-mark-branch `.get()` fix guards
+        // against (Engine.cpp:551). We deliberately deviate: return `data`
+        // unchanged instead of indexing out of bounds or panicking.
+        let data = KEY_D as u32 | TONEW_MASK;
+        assert_eq!(get_character_code(CodeTable::Unicode, data), data);
+        assert!(cpp_index_would_be_oob(CodeTable::Unicode, data));
+    }
+
+    #[test]
+    fn d_with_mark2_no_tone_does_not_panic_and_is_safe_fallback() {
+        // KEY_D|MARK2_MASK, no TONE/TONEW: markElem = 2(mark2) + capsElem.
+        // KEY_D is not in {A,O,U,E}, so no +4 rescue. KEY_D's row has only 2
+        // elements, so markElem (2 or 3) is out of bounds in C++
+        // (Engine.cpp:518-536 -- also UB, distinct from the no-mark branch).
+        // We deviate the same way: return `data` unchanged.
+        let data = KEY_D as u32 | MARK2_MASK;
+        assert_eq!(get_character_code(CodeTable::Unicode, data), data);
+        assert!(cpp_index_would_be_oob(CodeTable::Unicode, data));
+    }
+
+    #[test]
+    fn cpp_index_would_be_oob_is_false_for_known_in_bounds_cells() {
+        // Sanity check the predicate isn't trivially true/over-broad: every
+        // hand-verified in-bounds case above must report `false`.
+        assert!(!cpp_index_would_be_oob(
+            CodeTable::Unicode,
+            KEY_E as u32 | TONE_MASK | MARK5_MASK
+        ));
+        assert!(!cpp_index_would_be_oob(
+            CodeTable::Unicode,
+            KEY_A as u32 | TONEW_MASK
+        ));
+        assert!(!cpp_index_would_be_oob(
+            CodeTable::Unicode,
+            KEY_A as u32 | MARK1_MASK
+        ));
+        assert!(!cpp_index_would_be_oob(
+            CodeTable::Unicode,
+            KEY_D as u32 | MARK1_MASK // markElem = 0/1, D row has 2 elements: in bounds
+        ));
+        assert!(!cpp_index_would_be_oob(
+            CodeTable::Unicode,
+            KEY_B as u32 | CAPS_MASK // not in table at all: "not found", no indexing
+        ));
     }
 
     // Same cell (KEY_A|TONE_MASK|MARK1_MASK, sac, no caps -> 'a-circumflex-acute')
