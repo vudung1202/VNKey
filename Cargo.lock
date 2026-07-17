@@ -4170,6 +4170,9 @@ dependencies = [
 [[package]]
 name = "vnkey-engine"
 version = "0.1.0"
+dependencies = [
+ "openkey-oracle",
+]
 
 [[package]]
 name = "vswhom"
