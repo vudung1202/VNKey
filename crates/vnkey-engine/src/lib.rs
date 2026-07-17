@@ -4,10 +4,12 @@
 //! (constants, enums, code tables) to Rust. State-machine/typing logic is
 //! ported in later tasks.
 
+pub mod charset;
 pub mod data;
 pub mod keys;
 pub mod options;
 
+pub use charset::{get_character_code, key_code_to_character};
 pub use data::{
     CAPS_MASK, CHAR_CODE_MASK, CHAR_MASK, CONSONANT_ALLOW_MASK, CodeTable, END_CONSONANT_MASK,
     HookCode, HookState, KeyEvent, KeyEventState, InputType, MARK1_MASK, MARK2_MASK, MARK3_MASK,
