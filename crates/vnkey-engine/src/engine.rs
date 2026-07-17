@@ -9,9 +9,11 @@
 //! `int` in every expression, and negative intermediates / `>= 0` guards are
 //! load-bearing).
 //!
-//! Scope: this task ports the normal-key path only. The space / delete /
-//! word-break / macro / restore-if-wrong-spelling branches are stubbed with
-//! `// TODO Task 5/6` markers and are never reached by letter/bracket input.
+//! Scope: break-code / SPACE / DELETE (Task 5) plus the normal-key path
+//! (Task 4). Macro lookup (`isMacroBreakCode`/`findMacro`), `vEnglishMode`
+//! and the temp-off-engine/spelling session methods stay out of scope (Task
+//! 6/7); `find_macro` is a stub that always reports "no macro found" so the
+//! break/SPACE call-site structure is in place without a macro table.
 //!
 //! Clippy lints are allowed where "simplifying" would break the 1:1 mapping to
 //! `Engine.cpp`: `int_plus_one` keeps the C++ `x - 1 >= 0` index guards
@@ -22,7 +24,8 @@ use crate::buffer::Buffer;
 use crate::charset::get_character_code;
 use crate::data::{
     CAPS_MASK, HookCode, HookState, InputType, KeyEvent, KeyEventState, MARK1_MASK, MARK2_MASK,
-    MARK3_MASK, MARK4_MASK, MARK5_MASK, STANDALONE_MASK, TONEW_MASK,
+    MARK3_MASK, MARK4_MASK, MARK5_MASK, MARK_MASK, MAX_BUFF, STANDALONE_MASK, TONE_MASK,
+    TONEW_MASK,
 };
 use crate::input_method::{
     is_bracket_key, is_consonant, is_key_d, is_key_double, is_key_f, is_key_j, is_key_r, is_key_s,
@@ -30,7 +33,10 @@ use crate::input_method::{
 };
 use crate::keys::*;
 use crate::options::EngineOptions;
-use crate::vietnamese::{BREAK_CODE, CONSONANT_D, QUICK_TELEX, STANDALONE_WBAD, VOWEL, VOWEL_FOR_MARK};
+use crate::vietnamese::{
+    BREAK_CODE, CHAR_KEY_CODE, CONSONANT_D, MACRO_BREAK_CODE, QUICK_END_CONSONANT,
+    QUICK_START_CONSONANT, QUICK_TELEX, STANDALONE_WBAD, VOWEL, VOWEL_FOR_MARK,
+};
 
 pub struct Engine {
     pub(crate) opts: EngineOptions,
@@ -57,10 +63,13 @@ pub struct Engine {
     pub(crate) is_restored_w: bool,
     pub(crate) key_for_aeo: u16,
 
-    // break/space/upper-case tracking (mostly Task 6; read by the normal path)
+    // break/space/upper-case tracking + typing-state history
     pub(crate) space_count: i32,
     pub(crate) upper_case_status: u8,
     pub(crate) special_char: Vec<u32>,
+    /// `Engine.cpp:86 _typingStates` -- stack of saved words/space-runs/
+    /// special-char runs, used to restore across word boundaries on DELETE.
+    pub(crate) typing_states: Vec<Vec<u32>>,
     pub(crate) will_temp_off_engine: bool,
     pub(crate) has_handled_macro: bool,
     pub(crate) has_handle_quick_consonant: bool,
@@ -94,6 +103,7 @@ impl Engine {
             space_count: 0,
             upper_case_status: 0,
             special_char: Vec::new(),
+            typing_states: Vec::new(),
             will_temp_off_engine: false,
             has_handled_macro: false,
             has_handle_quick_consonant: false,
@@ -141,6 +151,204 @@ impl Engine {
             return true;
         }
         BREAK_CODE.iter().any(|&b| b as u16 == data)
+    }
+
+    /// `Engine.cpp:156-163 isMacroBreakCode`.
+    fn is_macro_break_code(data: u16) -> bool {
+        MACRO_BREAK_CODE.iter().any(|&b| b as u16 == data)
+    }
+
+    /// `Engine.cpp:1344 _isCharKeyCode`'s membership test against
+    /// `_charKeyCode` (`Engine.cpp:15-19`).
+    fn is_char_key_code(data: u16) -> bool {
+        CHAR_KEY_CODE.iter().any(|&b| b as u16 == data)
+    }
+
+    /// `Engine.cpp: findMacro` -- Task 7. Always reports "no macro found" so
+    /// the break/SPACE call sites keep their exact C++ structure while the
+    /// macro table itself stays unported.
+    fn find_macro(&mut self) -> bool {
+        // TODO Task 7: look up `hook.macro_key` in the macro table and, on a
+        // hit, fill `hook.macro_data` and return true.
+        false
+    }
+
+    /// `Engine.cpp:381-416 saveWord()` (no-arg overload).
+    fn save_word(&mut self) {
+        if self.hook.code != HookCode::ReplaceMacro {
+            if self.buf.index > 0 {
+                if !self.buf.long_word_helper.is_empty() {
+                    // save long word first
+                    let mut data: Vec<u32> = Vec::new();
+                    for (i, &w) in self.buf.long_word_helper.iter().enumerate() {
+                        if i != 0 && i % MAX_BUFF == 0 {
+                            // save if overflow
+                            self.typing_states.push(std::mem::take(&mut data));
+                        }
+                        data.push(w);
+                    }
+                    self.typing_states.push(data);
+                    self.buf.long_word_helper.clear();
+                }
+
+                // save current word
+                let data: Vec<u32> = self.buf.word[..self.buf.index as usize].to_vec();
+                self.typing_states.push(data);
+            }
+        } else {
+            // save macro words
+            let mut data: Vec<u32> = Vec::new();
+            for (i, &w) in self.hook.macro_data.iter().enumerate() {
+                if i != 0 && i % MAX_BUFF == 0 {
+                    // break if overflow
+                    self.typing_states.push(std::mem::take(&mut data));
+                }
+                data.push(w);
+            }
+            self.typing_states.push(data);
+        }
+    }
+
+    /// `Engine.cpp:418-424 saveWord(keyCode, count)` (2-arg overload). Every
+    /// call site guards `count > 0` before calling, matching the C++ loop
+    /// (`for (i = 0; i < count; i++)`), which never runs for `count <= 0`.
+    fn save_word_repeated(&mut self, key_code: u32, count: i32) {
+        self.typing_states.push(vec![key_code; count as usize]);
+    }
+
+    /// `Engine.cpp:435-455 restoreLastTypingState`.
+    fn restore_last_typing_state(&mut self) {
+        if let Some(data) = self.typing_states.pop() {
+            if !data.is_empty() {
+                // Engine.cpp:440 compares the full, untruncated Uint32
+                // element against KEY_SPACE -- no cast.
+                if data[0] == KEY_SPACE as u32 {
+                    self.space_count = data.len() as i32;
+                    self.buf.index = 0;
+                } else if CHAR_KEY_CODE.iter().any(|&b| b as u16 == data[0] as u16) {
+                    // Engine.cpp:443 truncates to `(Uint16)` before the lookup.
+                    self.buf.index = 0;
+                    self.special_char = data;
+                    self.check_spelling(false);
+                } else {
+                    for (i, &w) in data.iter().enumerate() {
+                        self.buf.word[i] = w;
+                    }
+                    // Engine.cpp:451 `(Byte)` truncates the size to 8 bits.
+                    self.buf.index = (data.len() as u8) as i32;
+                }
+            }
+        }
+    }
+
+    /// `Engine.cpp:1204-1221 checkRestoreIfWrongSpelling`.
+    fn check_restore_if_wrong_spelling(&mut self, handle_code: HookCode) -> bool {
+        let mut ii = 0i32;
+        while ii < self.buf.index {
+            let w = self.buf.word[ii as usize];
+            if !is_consonant(self.buf.chr(ii))
+                && (w & MARK_MASK != 0 || w & TONE_MASK != 0 || w & TONEW_MASK != 0)
+            {
+                self.hook.code = handle_code;
+                self.hook.backspace_count = self.buf.index as u8;
+                self.hook.new_char_count = self.buf.state_index as u8;
+                let mut i = 0i32;
+                while i < self.buf.state_index {
+                    self.buf.word[i as usize] = self.buf.states[i as usize];
+                    // mirror C++ quirk: hData is filled with the RAW
+                    // TypingWord[i] value (post-restore), not GET(TypingWord[i]).
+                    self.hook.char_data[(self.buf.state_index - 1 - i) as usize] =
+                        self.buf.word[i as usize];
+                    i += 1;
+                }
+                self.buf.index = self.buf.state_index;
+                return true;
+            }
+            ii += 1;
+        }
+        false
+    }
+
+    /// `Engine.cpp:1237-1281 checkQuickConsonant`.
+    fn check_quick_consonant(&mut self) -> bool {
+        if self.buf.index <= 1 {
+            return false;
+        }
+        let mut l = 0;
+        if self.buf.index > 0 {
+            if self.opts.quick_start_consonant {
+                if let Some(row) = QUICK_START_CONSONANT.get(&self.buf.chr(0)) {
+                    self.hook.code = HookCode::Restore;
+                    self.hook.backspace_count = self.buf.index as u8;
+                    self.hook.new_char_count = (self.buf.index + 1) as u8;
+                    if self.buf.index < MAX_BUFF as i32 - 1 {
+                        self.buf.index += 1;
+                    }
+                    // right shift
+                    let mut i = self.buf.index - 1;
+                    while i >= 2 {
+                        self.buf.word[i as usize] = self.buf.word[(i - 1) as usize];
+                        i -= 1;
+                    }
+                    let caps0 = self.buf.word[0] & CAPS_MASK != 0;
+                    let caps2 = self.buf.word[2] & CAPS_MASK != 0;
+                    self.buf.word[1] = row[1] as u32 | if caps0 && caps2 { CAPS_MASK } else { 0 };
+                    self.buf.word[0] = row[0] as u32 | if caps0 { CAPS_MASK } else { 0 };
+                    l = 1;
+                }
+            }
+            if self.opts.quick_end_consonant
+                && self.buf.index - 2 >= 0
+                && !is_consonant(self.buf.chr(self.buf.index - 2))
+                && QUICK_END_CONSONANT.contains_key(&self.buf.chr(self.buf.index - 1))
+            {
+                self.hook.code = HookCode::Restore;
+                if l == 1 {
+                    self.hook.new_char_count += 1;
+                } else {
+                    self.hook.backspace_count = 1;
+                    self.hook.new_char_count = 2;
+                }
+                if self.buf.index < MAX_BUFF as i32 - 1 {
+                    self.buf.index += 1;
+                }
+                // mirror C++ quirk / UB: Engine.cpp re-looks-up
+                // `_quickEndConsonant[CHR(_index-2)]` (operator[], keyed by the
+                // index AFTER the conditional increment above) instead of
+                // reusing this guard's `CHR(_index-1)` (pre-increment) key.
+                // When `_index` was already MAX_BUFF-1 at guard time, the
+                // increment above is skipped, so the re-lookup key differs
+                // from the guard's validated key -- if that different
+                // character is not itself a `_quickEndConsonant` key, C++'s
+                // `operator[]` default-constructs an empty vector and the
+                // `[0]`/`[1]` indexing below is an out-of-bounds read (genuine
+                // UB, not a defined quirk, only reachable at
+                // `_index == MAX_BUFF-1`). We look the key up fresh (matching
+                // C++'s statement order/re-lookup exactly) and, on a miss,
+                // skip the mutation as a safe no-op instead of indexing into
+                // nothing.
+                if let Some(row2) = QUICK_END_CONSONANT.get(&self.buf.chr(self.buf.index - 2)) {
+                    let caps = self.buf.word[(self.buf.index - 2) as usize] & CAPS_MASK != 0;
+                    self.buf.word[(self.buf.index - 1) as usize] =
+                        row2[1] as u32 | if caps { CAPS_MASK } else { 0 };
+                    let caps2 = self.buf.word[(self.buf.index - 2) as usize] & CAPS_MASK != 0;
+                    self.buf.word[(self.buf.index - 2) as usize] =
+                        row2[0] as u32 | if caps2 { CAPS_MASK } else { 0 };
+                }
+                l = 1;
+            }
+            if l == 1 {
+                self.has_handle_quick_consonant = true;
+                let mut i = self.buf.index - 1;
+                while i >= 0 {
+                    self.hook.char_data[(self.buf.index - 1 - i) as usize] =
+                        self.get(self.buf.word[i as usize]);
+                    i -= 1;
+                }
+                return true;
+            }
+        }
+        false
     }
 
     /// `Engine.cpp:349-367 insertKey`.
@@ -482,37 +690,183 @@ impl Engine {
     ) -> &HookState {
         let data = keycode;
         let is_caps = caps_status == 1 || caps_status == 2;
-        // `state` is only read by the Task 6 word-break / delete branches
-        // (`_isCharKeyCode = state == KeyDown && ...`); unused on the normal path.
-        let _ = state;
 
         if (is_number_key(data) && caps_status == 1)
             || other_control
             || Self::is_word_break(event, data)
             || (self.buf.index == 0 && is_number_key(data))
         {
-            // TODO Task 6: word-break / macro / restore-if-wrong-spelling path.
-            // Never reached by letter/bracket input (the only input this task's
-            // tests exercise); emit the C++ default header for the branch.
+            // `Engine.cpp:1321-1383` break/word-break path.
             self.hook.code = HookCode::DoNothing;
             self.hook.backspace_count = 0;
             self.hook.new_char_count = 0;
             self.hook.ext_code = 1; // word break
-            self.start_new_session();
-            self.spell_check_on = self.use_spell_checking_before;
-            self.will_temp_off_engine = false;
+
+            // check macro feature
+            if self.opts.use_macro
+                && Self::is_macro_break_code(data)
+                && !self.has_handled_macro
+                && self.find_macro()
+            {
+                self.hook.code = HookCode::ReplaceMacro;
+                self.hook.backspace_count = self.hook.macro_key.len() as u8;
+                self.has_handled_macro = true;
+            } else if (self.opts.quick_start_consonant || self.opts.quick_end_consonant)
+                && !self.temp_disable_key
+                && Self::is_macro_break_code(data)
+            {
+                self.check_quick_consonant();
+            } else if self.opts.restore_if_wrong_spelling && Self::is_word_break(event, data) {
+                // restore key if wrong spelling with break-key
+                if !self.temp_disable_key && self.spell_check_on {
+                    self.check_spelling(true); // force check spelling
+                }
+                if self.temp_disable_key
+                    && !self.check_restore_if_wrong_spelling(HookCode::RestoreAndStartNewSession)
+                {
+                    self.hook.code = HookCode::DoNothing;
+                }
+            }
+
+            let is_char_key_code = state == KeyEventState::KeyDown && Self::is_char_key_code(data);
+            if !is_char_key_code {
+                // clear all line cache
+                self.special_char.clear();
+                self.typing_states.clear();
+            } else {
+                // check and save current word
+                if self.space_count > 0 {
+                    self.save_word_repeated(KEY_SPACE as u32, self.space_count);
+                    self.space_count = 0;
+                } else {
+                    self.save_word();
+                }
+                self.special_char.push(data as u32 | if is_caps { CAPS_MASK } else { 0 });
+                self.hook.ext_code = 3; // normal word
+            }
+
+            if self.hook.code == HookCode::DoNothing {
+                self.start_new_session();
+                self.spell_check_on = self.use_spell_checking_before;
+                self.will_temp_off_engine = false;
+            } else if self.hook.code == HookCode::ReplaceMacro || self.has_handle_quick_consonant {
+                self.buf.index = 0;
+            }
+
+            // insert key for macro function
+            if self.opts.use_macro {
+                if is_char_key_code {
+                    self.hook.macro_key.push(data as u32 | if is_caps { CAPS_MASK } else { 0 });
+                } else {
+                    self.hook.macro_key.clear();
+                }
+            }
+
+            if self.opts.upper_case_first_char {
+                if data == KEY_DOT {
+                    self.upper_case_status = 1;
+                } else if data == KEY_ENTER || data == KEY_RETURN {
+                    self.upper_case_status = 2;
+                } else {
+                    self.upper_case_status = 0;
+                }
+            }
+
             return &self.hook;
         } else if data == KEY_SPACE {
-            // TODO Task 6: space handling (macro / spell / save word).
-            self.hook.code = HookCode::DoNothing;
-            self.space_count += 1;
+            // `Engine.cpp:1384-1419` SPACE path. `hCode` is NOT reset at
+            // branch entry -- it stays whatever it was from the previous
+            // call unless one of the sub-branches below explicitly sets it.
+            if !self.temp_disable_key && self.spell_check_on {
+                self.check_spelling(true); // force check spelling
+            }
+            if self.opts.use_macro && !self.has_handled_macro && self.find_macro() {
+                // macro
+                self.hook.code = HookCode::ReplaceMacro;
+                self.hook.backspace_count = self.hook.macro_key.len() as u8;
+                self.space_count += 1;
+                self.has_handled_macro = true;
+            } else if (self.opts.quick_start_consonant || self.opts.quick_end_consonant)
+                && !self.temp_disable_key
+                && self.check_quick_consonant()
+            {
+                self.space_count += 1;
+            } else if self.opts.restore_if_wrong_spelling
+                && self.temp_disable_key
+                && !self.has_handled_macro
+            {
+                // restore key if wrong spelling
+                if !self.check_restore_if_wrong_spelling(HookCode::Restore) {
+                    self.hook.code = HookCode::DoNothing;
+                }
+                self.space_count += 1;
+            } else {
+                // do nothing with SPACE KEY
+                self.hook.code = HookCode::DoNothing;
+                self.space_count += 1;
+            }
+            if self.opts.use_macro {
+                self.hook.macro_key.clear();
+            }
+            if self.opts.upper_case_first_char && self.upper_case_status == 1 {
+                self.upper_case_status = 2;
+            }
+            // save word
+            if self.space_count == 1 {
+                if !self.special_char.is_empty() {
+                    self.save_special_char();
+                } else {
+                    self.save_word();
+                }
+            }
             self.spell_check_on = self.use_spell_checking_before;
             self.will_temp_off_engine = false;
             return &self.hook;
         } else if data == KEY_DELETE {
-            // TODO Task 6: delete handling.
+            // `Engine.cpp:1420-1465` DELETE path.
             self.hook.code = HookCode::DoNothing;
-            self.hook.ext_code = 2;
+            self.hook.ext_code = 2; // delete
+
+            if !self.special_char.is_empty() {
+                self.special_char.pop();
+                if self.special_char.is_empty() {
+                    self.restore_last_typing_state();
+                }
+            } else if self.space_count > 0 {
+                // previous char is space
+                self.space_count -= 1;
+                if self.space_count == 0 {
+                    // restore word
+                    self.restore_last_typing_state();
+                }
+            } else {
+                if self.buf.state_index > 0 {
+                    self.buf.state_index -= 1;
+                }
+                if self.buf.index > 0 {
+                    self.buf.index -= 1;
+                    self.buf.restore_long_word_helper();
+                    if self.spell_check_on {
+                        self.check_spelling(false);
+                    }
+                }
+                if self.opts.use_macro && !self.hook.macro_key.is_empty() {
+                    self.hook.macro_key.pop();
+                }
+
+                self.hook.backspace_count = 0;
+                self.hook.new_char_count = 0;
+                self.hook.ext_code = 2; // delete key
+                if self.buf.index == 0 {
+                    self.start_new_session();
+                    self.special_char.clear();
+                    self.restore_last_typing_state();
+                } else {
+                    // August 23rd continue check grammar
+                    self.check_grammar(1);
+                }
+            }
+
             return &self.hook;
         }
 
@@ -527,7 +881,8 @@ impl Engine {
             self.hook.new_char_count = 0;
             self.hook.ext_code = 0;
             self.start_new_session();
-            // TODO Task 6: saveWord(KEY_SPACE, _spaceCount) history.
+            // continue save space
+            self.save_word_repeated(KEY_SPACE as u32, self.space_count);
             self.space_count = 0;
         } else if !self.special_char.is_empty() {
             self.save_special_char();
@@ -618,7 +973,7 @@ impl Engine {
             };
             if self.buf.index - sub > 0 {
                 self.buf.index -= 1;
-                // TODO Task 6: saveWord() history.
+                self.save_word();
             }
             self.buf.index = 0;
             self.temp_disable_key = false;
@@ -630,11 +985,9 @@ impl Engine {
         &self.hook
     }
 
-    /// `Engine.cpp:426-433 saveSpecialChar`. History bookkeeping (the pushed
-    /// `_typingStates` list is Task 6 / restore-only); for the normal-key
-    /// path only the `_specialChar.clear()` side effect matters.
+    /// `Engine.cpp:426-433 saveSpecialChar`.
     fn save_special_char(&mut self) {
-        // TODO Task 6: push self.special_char to the typing-state history.
+        self.typing_states.push(self.special_char.clone());
         self.special_char.clear();
     }
 }
