@@ -21,8 +21,8 @@
 
 use vnkey_engine::keys::*;
 use vnkey_engine::{
-    CAPS_MASK, CHAR_CODE_MASK, CHAR_MASK, Engine, EngineOptions, HookState, InputType, KeyEvent,
-    KeyEventState, key_code_to_character,
+    CAPS_MASK, CHAR_CODE_MASK, CHAR_MASK, Engine, EngineOptions, HookCode, HookState, InputType,
+    KeyEvent, KeyEventState, key_code_to_character,
 };
 
 /// Map an ASCII char to `(keycode, caps_status)`. Uppercase -> shift (1).
@@ -104,6 +104,36 @@ fn type_str(opts: EngineOptions, s: &str) -> String {
 
 fn telex() -> EngineOptions {
     EngineOptions::default()
+}
+
+/// Like `type_str`, but calls `action` on the engine immediately before
+/// processing the character at index `action_at` (0-based). Used for the
+/// Task 6 session-method golden cases, which need to call
+/// `temp_off_spell_checking`/`temp_off_engine` partway through a sequence.
+fn type_str_with_action(
+    opts: EngineOptions,
+    s: &str,
+    action_at: usize,
+    action: impl FnOnce(&mut Engine),
+) -> String {
+    let mut e = Engine::new(opts);
+    let mut field: Vec<char> = Vec::new();
+    let mut action = Some(action);
+    for (i, c) in s.chars().enumerate() {
+        if i == action_at
+            && let Some(f) = action.take()
+        {
+            f(&mut e);
+        }
+        let (code, caps) = key_of(c);
+        let hs = e.handle_event(KeyEvent::Keyboard, KeyEventState::KeyDown, code, caps, false);
+        let orig = char::from_u32(key_code_to_character(
+            code as u32 | if caps == 1 { CAPS_MASK } else { 0 },
+        ))
+        .unwrap();
+        apply(&mut field, orig, code == KEY_DELETE, hs);
+    }
+    field.into_iter().collect()
 }
 
 #[test]
@@ -301,4 +331,70 @@ fn word_longer_than_max_buff_exercises_long_word_helper() {
         type_str(telex(), long),
         "việtđaayuwowngthueejnguoiwfkhuyees"
     );
+}
+
+// -- Task 6: temp-off-spelling / temp-off-engine / english_mode ------------
+//
+// Every expected value below was obtained the same way as the Task 5 cases
+// above: run the exact sequence through the C++ oracle via a throwaway
+// `tests/zz_oracle_explore.rs` scratch harness (deleted before commit, not
+// part of the diff) and compare per-key `(code, backspace_count,
+// new_char_count, ext_code[, char_data])` field by field before pinning the
+// final string/length here.
+
+#[test]
+fn temp_off_spelling_round_trip() {
+    // check_spelling=1, restore_if_wrong_spelling=1. `temp_off_spell_checking`
+    // is called once, before the FIRST word only -- no `reset_check_spelling`.
+    //
+    // Oracle trace, word 1 ("nghasl "): spelling is off (vCheckSpelling
+    // flipped false), so checkSpelling never runs; 'n','g','h','a' insert
+    // plain, 's' places a sac mark on 'a' -> "nghá", 'l' inserts plain ->
+    // "nghál", and SPACE does NOT restore (temp_disable_key never got set) --
+    // contrast with `restore_if_wrong_spelling_restores_raw_keys_on_space`
+    // above, the same "nghasl " input WITHOUT temp-off, which restores to
+    // raw keys instead.
+    //
+    // Word-break auto-restores the baseline (`spell_check_on =
+    // use_spell_checking_before`, ported in Task 5) back to ON, since
+    // `reset_check_spelling` was never called to make the "off" state stick.
+    // So word 2 (second "nghasl "): checkSpelling flags the invalid 'l'
+    // ending again and SPACE fully restores to raw keys, exactly like the
+    // no-temp-off case -- completing the round trip.
+    let mut o = telex();
+    o.check_spelling = true;
+    o.restore_if_wrong_spelling = true;
+    let out = type_str_with_action(o, "nghasl nghasl ", 0, |e| e.temp_off_spell_checking());
+    assert_eq!(out, "nghál nghasl ");
+}
+
+#[test]
+fn temp_off_engine_passes_keys_through_until_word_break() {
+    // `temp_off_engine(true)` called right before the third key ('e', the
+    // first of the double-e in "vieejt"). From that point on every key is
+    // pure passthrough (`hCode` stays DoNothing, no mark/vowel transform),
+    // so the first word types out literally as "vieejt" instead of
+    // transforming to "việt". SPACE resets `will_temp_off_engine` (already
+    // ported in Task 5's break/space branches), so the second "vieejt"
+    // transforms normally again -> "việt".
+    let out = type_str_with_action(telex(), "vieejt vieejt", 2, |e| e.temp_off_engine(true));
+    assert_eq!(out, "vieejt việt");
+}
+
+#[test]
+fn english_mode_accumulates_macro_key_and_clears_on_space() {
+    // language=0 (English mode), no macro table (use_macro stays false, the
+    // same Task-7 carve-out as the rest of this port). `english_mode` never
+    // transforms a key -- `hCode` stays DoNothing for every key -- it only
+    // accumulates one `macro_key` entry per non-break key and clears it on
+    // SPACE (`findMacro` is the Task 7 stub, always a miss).
+    let mut e = Engine::new(telex());
+    let mut lens = Vec::new();
+    for c in "btw ".chars() {
+        let (code, caps) = key_of(c);
+        let hs = e.english_mode(KeyEventState::KeyDown, code, caps == 1, false);
+        assert_eq!(hs.code, HookCode::DoNothing);
+        lens.push(hs.macro_key.len());
+    }
+    assert_eq!(lens, vec![1, 2, 3, 0]);
 }
