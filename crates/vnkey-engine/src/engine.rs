@@ -134,6 +134,30 @@ impl Engine {
         self.buf.long_word_helper.clear();
     }
 
+    /// `Engine.cpp:1223-1227 vTempOffSpellChecking`. Only flips the *current*
+    /// spelling flag (`spell_check_on` == C++'s mutable `vCheckSpelling`) when
+    /// `use_spell_checking_before` (C++'s `_useSpellCheckingBefore`, the
+    /// "original" value saved by `reset_check_spelling`) is set -- so calling
+    /// this repeatedly toggles the runtime flag on/off around that saved
+    /// baseline instead of unconditionally flipping it.
+    pub fn temp_off_spell_checking(&mut self) {
+        if self.use_spell_checking_before {
+            self.spell_check_on = !self.spell_check_on;
+        }
+    }
+
+    /// `Engine.cpp:1229-1231 vSetCheckSpelling`. Snapshots the current
+    /// runtime spelling flag as the new "original" baseline that
+    /// `temp_off_spell_checking` toggles around.
+    pub fn reset_check_spelling(&mut self) {
+        self.use_spell_checking_before = self.spell_check_on;
+    }
+
+    /// `Engine.cpp:1233-1235 vTempOffEngine`.
+    pub fn temp_off_engine(&mut self, off: bool) {
+        self.will_temp_off_engine = off;
+    }
+
     /// `Engine.cpp:65 GET` -- `getCharacterCode` against the active table.
     #[inline]
     pub(crate) fn get(&self, data: u32) -> u32 {
