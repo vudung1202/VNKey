@@ -105,6 +105,91 @@ fn seq_strategy() -> impl Strategy<Value = Vec<(u16, u8)>> {
     prop::collection::vec(key_strategy(), 1..=30)
 }
 
+/// The 10 digit keycodes, used only by the dedicated VNI-digit pass below.
+const DIGIT_KEYCODES: [u16; 10] = [
+    KEY_0, KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9,
+];
+
+/// Options strategy forced to `input_type=Vni`, otherwise identical to
+/// `options_strategy` (out-of-scope options held at 0/false).
+fn vni_options_strategy() -> impl Strategy<Value = EngineOptions> {
+    (any::<bool>(), any::<bool>(), any::<bool>(), any::<bool>(), any::<bool>()).prop_map(
+        |(modern, spell, zfwj, qtelex, upper)| {
+            let mut o = EngineOptions {
+                input_type: InputType::Vni,
+                code_table: CodeTable::Unicode,
+                use_modern_orthography: modern,
+                check_spelling: spell,
+                allow_consonant_zfwj: zfwj,
+                quick_telex: qtelex,
+                upper_case_first_char: upper,
+                free_mark: false,
+                ..EngineOptions::default()
+            };
+            o.use_macro = false;
+            o.use_macro_in_english_mode = false;
+            o.auto_caps_macro = false;
+            o.use_smart_switch_key = false;
+            o.restore_if_wrong_spelling = false;
+            o.quick_start_consonant = false;
+            o.quick_end_consonant = false;
+            o.temp_off_spelling = false;
+            o.temp_off_openkey = false;
+            o
+        },
+    )
+}
+
+/// A digit key press. `capsStatus == 1` is excluded (kept at 0 or 2 only):
+/// `(IS_NUMBER_KEY(data) && capsStatus == 1)` is one of the OR'd conditions
+/// that routes into the still-stubbed (Task 5) word-break branch, which is
+/// out of scope for this pass -- it only validates the already-ported
+/// normal-key path (`handleMainKey`/`insertKey`).
+fn vni_digit_key_strategy() -> impl Strategy<Value = (u16, u8)> {
+    let caps = prop_oneof![10 => Just(0u8), 1 => Just(2u8)];
+    ((0usize..DIGIT_KEYCODES.len()), caps).prop_map(|(i, c)| (DIGIT_KEYCODES[i], c))
+}
+
+/// A letter key press (first 26 entries of `SCAN_KEYCODES`; the bracket
+/// entries are excluded from this pass -- see `vni_seq_strategy`).
+fn vni_letter_key_strategy() -> impl Strategy<Value = (u16, u8)> {
+    let caps = prop_oneof![10 => Just(0u8), 1 => Just(1u8), 1 => Just(2u8)];
+    ((0usize..26usize), caps).prop_map(|(i, c)| (SCAN_KEYCODES[i], c))
+}
+
+/// A key press weighted ~35% digits / ~65% letters, for the dedicated
+/// VNI-digit pass: `SCAN_KEYCODES` has no digit keys, so under
+/// `input_type=Vni` a plain `seq_strategy()` run never exercises the VNI
+/// `keyForAEO` KEY_6/7/8 paths or the VNI-only `insertW` vei-rescan branch
+/// (`Engine.cpp` `handleMainKey`/`insertW`, ~lines 1055-1193 and 871-984).
+fn vni_key_strategy() -> impl Strategy<Value = (u16, u8)> {
+    prop_oneof![
+        35 => vni_digit_key_strategy(),
+        65 => vni_letter_key_strategy(),
+    ]
+}
+
+/// Sequences for the VNI-digit pass always start with a letter (never a
+/// digit) and never contain a bracket key. Both restrictions keep `_index`
+/// strictly `> 0` for the whole sequence after the first key, so the
+/// sequence can never hit `_index == 0 && IS_NUMBER_KEY(data)` -- the other
+/// OR'd condition that routes into the still-stubbed word-break branch
+/// (`Engine.cpp:1321-1322`; brackets are the only already-ported way `_index`
+/// can reset to 0 mid-sequence, via the "case []" block). This isolates the
+/// pass to what Task 4 actually ported.
+fn vni_seq_strategy() -> impl Strategy<Value = Vec<(u16, u8)>> {
+    (
+        vni_letter_key_strategy(),
+        prop::collection::vec(vni_key_strategy(), 0..=29),
+    )
+        .prop_map(|(first, mut rest)| {
+            let mut seq = Vec::with_capacity(1 + rest.len());
+            seq.push(first);
+            seq.append(&mut rest);
+            seq
+        })
+}
+
 /// Full options draw over the four non-Unicode tables (incl. the double-byte
 /// VNI / Unicode-Compound / CP1258 encodings that pack two bytes per cell).
 fn other_tables_options_strategy() -> impl Strategy<Value = EngineOptions> {
@@ -275,6 +360,26 @@ proptest! {
     fn differential_other_code_tables(
         opts in other_tables_options_strategy(),
         seq in seq_strategy(),
+    ) {
+        compare_sequence(opts, &seq)?;
+    }
+}
+
+proptest! {
+    #![proptest_config(config(5000))]
+
+    /// Mandatory pre-Task-5 pass (see task-5-brief.md): `input_type=Vni`
+    /// only, with sequences weighted ~35% digit keys. Task 4's normal-key
+    /// port was fuzzed only through `SCAN_KEYCODES` (letters+brackets, no
+    /// digits), so under VNI the `keyForAEO` KEY_6/7/8 branches and the
+    /// VNI-only `insertW` vei-rescan were exercised only by the ~5 hand
+    /// written cases in `differential_regression_corpus`. This pass
+    /// validates that Task 4 foundation is clean on VNI digit input before
+    /// Task 5 builds break/space/delete handling on top of it.
+    #[test]
+    fn differential_vni_digits(
+        opts in vni_options_strategy(),
+        seq in vni_seq_strategy(),
     ) {
         compare_sequence(opts, &seq)?;
     }
