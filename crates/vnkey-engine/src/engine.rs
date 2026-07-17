@@ -1043,6 +1043,50 @@ impl Engine {
         &self.hook
     }
 
+    /// `Engine.cpp:1284-1312 vEnglishMode`. English mode never transforms
+    /// keys (`hCode` stays `DoNothing`); it only accumulates/clears
+    /// `hook.macro_key` for the (Task 7, still-stubbed) macro lookup on
+    /// SPACE, and tracks `will_temp_off_engine` the same way the normal-key
+    /// path does.
+    pub fn english_mode(
+        &mut self,
+        st: KeyEventState,
+        keycode: u16,
+        caps: bool,
+        other_control: bool,
+    ) -> &HookState {
+        let data = keycode;
+        self.hook.code = HookCode::DoNothing;
+        if st == KeyEventState::MouseDown || (other_control && !caps) {
+            self.hook.macro_key.clear();
+            self.will_temp_off_engine = false;
+        } else if data == KEY_SPACE {
+            if !self.has_handled_macro && self.find_macro() {
+                self.hook.code = HookCode::ReplaceMacro;
+                self.hook.backspace_count = self.hook.macro_key.len() as u8;
+            }
+            self.hook.macro_key.clear();
+            self.will_temp_off_engine = false;
+        } else if data == KEY_DELETE {
+            if !self.hook.macro_key.is_empty() {
+                self.hook.macro_key.pop();
+            } else {
+                self.will_temp_off_engine = false;
+            }
+        } else {
+            // mirror C++ quirk: isWordBreak is always called with
+            // vKeyEvent::Keyboard hardcoded here (Engine.cpp:1303), not
+            // whatever event the real caller saw.
+            if Self::is_word_break(KeyEvent::Keyboard, data) && !Self::is_char_key_code(data) {
+                self.hook.macro_key.clear();
+                self.will_temp_off_engine = false;
+            } else if !self.will_temp_off_engine {
+                self.hook.macro_key.push(data as u32 | if caps { CAPS_MASK } else { 0 });
+            }
+        }
+        &self.hook
+    }
+
     /// `Engine.cpp:426-433 saveSpecialChar`.
     fn save_special_char(&mut self) {
         self.typing_states.push(self.special_char.clone());
