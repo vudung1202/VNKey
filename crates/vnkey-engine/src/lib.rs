@@ -8,6 +8,7 @@ pub mod charset;
 pub mod data;
 pub mod keys;
 pub mod options;
+mod vietnamese;
 
 pub use charset::{get_character_code, key_code_to_character};
 pub use data::{
