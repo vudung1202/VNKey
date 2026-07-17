@@ -460,6 +460,20 @@ fn quick_telex_table() -> HashMap<u32, Vec<u16>> {
 /// transcribed verbatim from the C++ source, not "cleaned up".
 pub(crate) const BREAK_CODE: &[u8] = &[KEY_ESC as u8, KEY_TAB as u8, KEY_ENTER as u8, KEY_RETURN as u8, KEY_LEFT as u8, KEY_RIGHT as u8, KEY_DOWN as u8, KEY_UP as u8, KEY_COMMA as u8, KEY_DOT as u8, KEY_SLASH as u8, KEY_SEMICOLON as u8, KEY_QUOTE as u8, KEY_BACK_SLASH as u8, KEY_MINUS as u8, KEY_EQUALS as u8, KEY_BACKQUOTE as u8, KEY_TAB as u8];
 
+/// `Engine.cpp:15-19 _charKeyCode`.
+pub(crate) const CHAR_KEY_CODE: &[u8] = &[
+    KEY_BACKQUOTE as u8, KEY_1 as u8, KEY_2 as u8, KEY_3 as u8, KEY_4 as u8, KEY_5 as u8,
+    KEY_6 as u8, KEY_7 as u8, KEY_8 as u8, KEY_9 as u8, KEY_0 as u8, KEY_MINUS as u8,
+    KEY_EQUALS as u8, KEY_LEFT_BRACKET as u8, KEY_RIGHT_BRACKET as u8, KEY_BACK_SLASH as u8,
+    KEY_SEMICOLON as u8, KEY_QUOTE as u8, KEY_COMMA as u8, KEY_DOT as u8, KEY_SLASH as u8,
+];
+
+/// `Engine.cpp:30-32 _macroBreakCode`.
+pub(crate) const MACRO_BREAK_CODE: &[u8] = &[
+    KEY_RETURN as u8, KEY_COMMA as u8, KEY_DOT as u8, KEY_SLASH as u8, KEY_SEMICOLON as u8,
+    KEY_QUOTE as u8, KEY_BACK_SLASH as u8, KEY_MINUS as u8, KEY_EQUALS as u8,
+];
+
 /// `Engine.cpp:34-39 ProcessingChar[][11]`. Column order: S F R X J A O E
 /// W D Z. Note the intentional duplicate `KEY_6` in the VNI row (columns
 /// 5 and 6) -- transcribed verbatim from the C++ source, not "fixed".
@@ -626,5 +640,23 @@ mod tests {
     fn ec_and_ca_constants_match_data_masks_truncated() {
         assert_eq!(u32::from(EC), END_CONSONANT_MASK);
         assert_eq!(u32::from(CA), CONSONANT_ALLOW_MASK);
+    }
+
+    #[test]
+    fn char_key_code_has_21_entries() {
+        // Engine.cpp:15-19: backquote, 1-9, 0, -, =, [, ], \, ;, ', ,, ., /.
+        assert_eq!(CHAR_KEY_CODE.len(), 21);
+        assert_eq!(CHAR_KEY_CODE[0], KEY_BACKQUOTE as u8);
+        assert_eq!(CHAR_KEY_CODE[10], KEY_0 as u8);
+        assert_eq!(CHAR_KEY_CODE[20], KEY_SLASH as u8);
+    }
+
+    #[test]
+    fn macro_break_code_has_9_entries() {
+        // Engine.cpp:30-32: Return, comma, dot, slash, semicolon, quote,
+        // backslash, minus, equals.
+        assert_eq!(MACRO_BREAK_CODE.len(), 9);
+        assert_eq!(MACRO_BREAK_CODE[0], KEY_RETURN as u8);
+        assert_eq!(MACRO_BREAK_CODE[8], KEY_EQUALS as u8);
     }
 }
