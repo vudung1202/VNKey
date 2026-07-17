@@ -90,6 +90,20 @@ impl Buffer {
             self.state_index += 1;
         }
     }
+
+    /// `Engine.cpp:1439-1446` (DELETE-branch fragment): pop the last spilled
+    /// word chunk from `_longWordHelper` back into `TypingWord[0]`,
+    /// right-shifting the rest. No-op if `long_word_helper` is empty (mirrors
+    /// the C++ `if (_longWordHelper.size() > 0)` guard).
+    pub(crate) fn restore_long_word_helper(&mut self) {
+        if !self.long_word_helper.is_empty() {
+            for i in (1..MAX_BUFF).rev() {
+                self.word[i] = self.word[i - 1];
+            }
+            self.word[0] = self.long_word_helper.pop().unwrap();
+            self.index += 1;
+        }
+    }
 }
 
 #[cfg(test)]
