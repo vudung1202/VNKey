@@ -46,6 +46,14 @@ int vTempOffOpenKey = 0;
 // `HookState` global that Engine.cpp defines.
 static vKeyHookState* g_state = nullptr;
 
+#ifdef VNKEY_ORACLE
+// VNKEY-ORACLE-PATCH: defined at the end of vendor/Engine.cpp under the same
+// guard. Resets every Engine.cpp file-scope static + HookState so each
+// ok_reset() hands back a pristine engine (vKeyInit alone leaks state between
+// sessions). Declared here because those statics are private to Engine.cpp.
+void vnkeyOracleResetStatics();
+#endif
+
 extern "C" {
 
 typedef struct {
@@ -93,6 +101,9 @@ static void applyOptions(const OkOptions* opts) {
 void ok_reset(const OkOptions* opts) {
     applyOptions(opts);
     g_state = static_cast<vKeyHookState*>(vKeyInit());
+#ifdef VNKEY_ORACLE
+    vnkeyOracleResetStatics(); // full static reset; must run after vKeyInit()
+#endif
     initMacroMap(nullptr, 0);
     initSmartSwitchKey(nullptr, 0);
 }

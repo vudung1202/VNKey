@@ -1556,3 +1556,71 @@ void vKeyHandleEvent(const vKeyEvent& event,
     //cout<<"backspace "<<(int)hBPC<<endl;
     //cout<<"new char "<<(int)hNCC<<endl<<endl;
 }
+
+#ifdef VNKEY_ORACLE
+// VNKEY-ORACLE-PATCH: differential-test-only full static reset.
+//
+// vKeyInit() (the only reset the shim previously had) clears just _index,
+// _stateIndex, _useSpellCheckingBefore, _typingStates, _typingStatesData and
+// _longWordHelper. Every other Engine.cpp file-scope static (and the HookState
+// output struct) keeps its value across a vKeyInit(), so state leaks between
+// oracle sessions -> phantom differential divergences (finding from Task 3
+// review). This function reassigns EVERY Engine.cpp file-scope static and the
+// HookState struct to its fresh-process value, so `ok_reset` yields a truly
+// pristine engine. It is compiled only when VNKEY_ORACLE is defined (set by
+// crates/openkey-oracle/build.rs); a normal build of the vendored engine is
+// byte-for-byte unchanged.
+void vnkeyOracleResetStatics() {
+    // typing buffers + word history
+    memset(TypingWord, 0, sizeof(TypingWord));
+    memset(KeyStates, 0, sizeof(KeyStates));
+    _index = 0;
+    _stateIndex = 0;
+    _longWordHelper.clear();
+    _typingStates.clear();
+    _typingStatesData.clear();
+    _specialChar.clear();
+
+    // engine flags / scratch statics
+    tempDisableKey = false;
+    capsElem = 0;
+    key = 0;
+    markElem = 0;
+    isCorect = false;
+    isChanged = false;
+    vowelCount = 0;
+    vowelStartIndex = 0;
+    vowelEndIndex = 0;
+    vowelWillSetMark = 0;
+    i = ii = iii = 0;
+    j = 0;
+    k = kk = 0;
+    l = 0;
+    isRestoredW = false;
+    keyForAEO = 0;
+    isCheckedGrammar = false;
+    _isCaps = false;
+    _spaceCount = 0;
+    _hasHandledMacro = false;
+    _upperCaseStatus = 0;
+    _isCharKeyCode = false;
+    _useSpellCheckingBefore = vCheckSpelling; // same as vKeyInit()
+    _hasHandleQuickConsonant = false;
+    _willTempOffEngine = false;
+
+    // checkSpelling() scratch globals (Engine.cpp:171-174)
+    _spellingOK = false;
+    _spellingFlag = false;
+    _spellingVowelOK = false;
+    _spellingEndIndex = 0;
+
+    // host-facing output buffer
+    HookState.code = 0;
+    HookState.backspaceCount = 0;
+    HookState.newCharCount = 0;
+    HookState.extCode = 0;
+    memset(HookState.charData, 0, sizeof(HookState.charData));
+    HookState.macroKey.clear();
+    HookState.macroData.clear();
+}
+#endif

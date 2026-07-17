@@ -227,6 +227,71 @@ mod tests {
         assert_eq!(session.key_code_to_character(KEY_A | CAPS_MASK), b'A' as u32);
     }
 
+    // Raw mac keycodes (vendor/platforms/mac.h) used by the reset test below.
+    const K_V: u16 = 9;
+    const K_I: u16 = 34;
+    const K_E: u16 = 14;
+    const K_J: u16 = 38;
+    const K_T: u16 = 17;
+    const K_A: u16 = 0;
+    // vKeyEvent::Keyboard = 0, vKeyEventState::KeyDown = 0.
+    const EV_KB: u8 = 0;
+    const ST_DOWN: u8 = 0;
+
+    fn state_tuple(s: &OkState) -> (u8, u8, u8, u8, Vec<u32>) {
+        (
+            s.code,
+            s.backspace_count,
+            s.new_char_count,
+            s.ext_code,
+            s.char_data[..s.new_char_count as usize].to_vec(),
+        )
+    }
+
+    /// Coverage proof for the VNKEY-ORACLE-PATCH reset: a session that leaves
+    /// the engine dirty (tempDisableKey / TypingWord / marks / HookState all
+    /// mutated) must not bleed into the next locked session. We type the same
+    /// probe key `a` (1) from a pristine engine and (2) right after a polluting
+    /// session; the resulting HookState must be identical. Before the reset fix
+    /// this failed because vKeyInit() left tempDisableKey, TypingWord, marks,
+    /// _upperCaseStatus, _specialChar, etc. untouched.
+    #[test]
+    fn ok_reset_clears_leaked_static_state_between_sessions() {
+        let opts = OkOptions {
+            check_spelling: 1,
+            ..OkOptions::default()
+        };
+
+        // (1) pristine engine, type `a`.
+        let baseline = {
+            let mut s = Oracle::lock(&opts);
+            s.handle_event(EV_KB, ST_DOWN, K_A, 0, 0);
+            state_tuple(&s.get_state())
+        };
+
+        // (2) pollute the engine with a full word incl. a tone mark ("việt"),
+        // which leaves TypingWord populated, marks set, and tempDisableKey in a
+        // non-default state; then drop the lock without cleaning up.
+        {
+            let mut s = Oracle::lock(&opts);
+            for &k in &[K_V, K_I, K_E, K_E, K_J, K_T] {
+                s.handle_event(EV_KB, ST_DOWN, k, 0, 0);
+            }
+        }
+
+        // (3) fresh lock (=> ok_reset) then the same probe key `a`.
+        let after_pollution = {
+            let mut s = Oracle::lock(&opts);
+            s.handle_event(EV_KB, ST_DOWN, K_A, 0, 0);
+            state_tuple(&s.get_state())
+        };
+
+        assert_eq!(
+            baseline, after_pollution,
+            "ok_reset must fully clear leaked static state between sessions"
+        );
+    }
+
     #[test]
     fn lock_can_be_reacquired_sequentially() {
         // Regression check for the mutex-guard pattern: acquiring, dropping,
