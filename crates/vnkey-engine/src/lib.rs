@@ -4,10 +4,15 @@
 //! (constants, enums, code tables) to Rust. State-machine/typing logic is
 //! ported in later tasks.
 
+mod buffer;
 pub mod charset;
 pub mod data;
+mod engine;
+mod input_method;
 pub mod keys;
+mod marks;
 pub mod options;
+mod spelling;
 mod vietnamese;
 
 pub use charset::{get_character_code, key_code_to_character};
@@ -17,4 +22,5 @@ pub use data::{
     MARK4_MASK, MARK5_MASK, MARK_MASK, MAX_BUFF, PURE_CHARACTER_MASK, STANDALONE_MASK, TONEW_MASK,
     TONE_MASK, is_double_code,
 };
+pub use engine::Engine;
 pub use options::EngineOptions;
