@@ -1,3 +1,7 @@
+mod platform;
+#[cfg(target_os = "macos")]
+mod state;
+
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
@@ -37,6 +41,9 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+
+            // Start the platform keystroke interception + Vietnamese injection.
+            platform::start();
 
             Ok(())
         })
