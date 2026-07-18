@@ -32,6 +32,7 @@ use crate::input_method::{
     is_key_w, is_key_x, is_key_z, is_mark_key, is_number_key, is_quick_telex_key, is_special_key,
 };
 use crate::keys::*;
+use crate::macros::MacroTable;
 use crate::options::EngineOptions;
 use crate::vietnamese::{
     BREAK_CODE, CHAR_KEY_CODE, CONSONANT_D, MACRO_BREAK_CODE, QUICK_END_CONSONANT,
@@ -80,6 +81,11 @@ pub struct Engine {
     pub(crate) spelling_vowel_ok: bool,
     pub(crate) spelling_end_index: i32,
 
+    /// `Macro.cpp`'s file-scope `macroMap` (plus its active `vCodeTable`),
+    /// consulted by `find_macro` and managed via `macro_*` accessors. Kept in
+    /// sync with `opts.code_table` by `new`/`set_options`.
+    pub(crate) macros: MacroTable,
+
     pub(crate) hook: HookState,
 }
 
@@ -111,15 +117,66 @@ impl Engine {
             spelling_flag: false,
             spelling_vowel_ok: false,
             spelling_end_index: 0,
+            macros: {
+                let mut m = MacroTable::new();
+                m.on_table_code_change(opts.code_table);
+                m
+            },
             hook: HookState::default(),
         }
     }
 
     /// Re-apply options (mirrors the oracle shim's `applyOptions`): update
     /// `vCheckSpelling` from the new options, leave the typing buffer intact.
+    ///
+    /// Changing `code_table` also runs `MacroTable::on_table_code_change` (the
+    /// host would call `onTableCodeChange` after switching tables, so a loaded
+    /// macro table's content codes track the active table). The raw oracle
+    /// `ok_set_options` does not model that host call, but no differential test
+    /// changes `code_table` mid-session via `set_options`.
     pub fn set_options(&mut self, opts: EngineOptions) {
+        if self.macros.code_table() != opts.code_table {
+            self.macros.on_table_code_change(opts.code_table);
+        }
         self.opts = opts;
         self.spell_check_on = opts.check_spelling;
+    }
+
+    /// Shared read access to the macro table (for the host/IPC to list
+    /// macros, export blobs, etc.).
+    pub fn macro_table(&self) -> &MacroTable {
+        &self.macros
+    }
+
+    /// Mutable access to the macro table (for the host/IPC to add/delete
+    /// macros or load a blob at startup). Keeps the table's code-table field
+    /// in sync with the engine's current option.
+    pub fn macro_table_mut(&mut self) -> &mut MacroTable {
+        &mut self.macros
+    }
+
+    /// Replace the macro table wholesale (e.g. a blob loaded at startup),
+    /// re-syncing its content codes to the engine's active code table.
+    pub fn set_macro_table(&mut self, mut table: MacroTable) {
+        if table.code_table() != self.opts.code_table {
+            table.on_table_code_change(self.opts.code_table);
+        }
+        self.macros = table;
+    }
+
+    /// `addMacro` on the owned table, under the engine's active code table.
+    pub fn macro_add(&mut self, text: &str, content: &str) -> bool {
+        self.macros.add(text, content, self.opts.code_table)
+    }
+
+    /// `deleteMacro` on the owned table.
+    pub fn macro_delete(&mut self, text: &str) -> bool {
+        self.macros.delete(text)
+    }
+
+    /// `getAllMacro` on the owned table -- `(text, content)` in save order.
+    pub fn macro_list(&self) -> Vec<(String, String)> {
+        self.macros.all()
     }
 
     /// `Engine.cpp:457-466 startNewSession`.
@@ -222,13 +279,21 @@ impl Engine {
         CHAR_KEY_CODE.iter().any(|&b| b as u16 == data)
     }
 
-    /// `Engine.cpp: findMacro` -- Task 7. Always reports "no macro found" so
-    /// the break/SPACE call sites keep their exact C++ structure while the
-    /// macro table itself stays unported.
+    /// `Engine.cpp: findMacro(hMacroKey, hMacroData)` -- look the accumulated
+    /// `hook.macro_key` up in the owned `MacroTable` and, on a hit, fill
+    /// `hook.macro_data` with the content codes and return true. On a miss,
+    /// leaves `hook.macro_data` untouched (mirrors C++: `findMacro` only
+    /// clears/assigns `macroContentCode` on a match). The break/SPACE/english-
+    /// mode call sites set `hook.code = ReplaceMacro` /
+    /// `hook.backspace_count = macro_key.len()` themselves, exactly like C++.
     fn find_macro(&mut self) -> bool {
-        // TODO Task 7: look up `hook.macro_key` in the macro table and, on a
-        // hit, fill `hook.macro_data` and return true.
-        false
+        match self.macros.find(&self.hook.macro_key, self.opts.auto_caps_macro) {
+            Some(content) => {
+                self.hook.macro_data = content;
+                true
+            }
+            None => false,
+        }
     }
 
     /// `Engine.cpp:381-416 saveWord()` (no-arg overload).

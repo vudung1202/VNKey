@@ -689,6 +689,68 @@ pub fn key_code_to_character(key_code: u32) -> u32 {
     *KEY_CODE_TO_CHAR.get(&key_code).unwrap_or(&0)
 }
 
+/// `Vietnamese.cpp:508 _characterMap` forward lookup: ASCII char code ->
+/// `(keycode [| CAPS_MASK])`, or `None` if absent. Backs the C++
+/// `_characterMap.find(t)` / `_characterMap[t]` used by `Macro.cpp`'s
+/// `convert` and `findMacro`.
+static CHAR_TO_KEY: LazyLock<HashMap<u32, u32>> =
+    LazyLock::new(|| CHARACTER_MAP.iter().copied().collect());
+
+/// `_characterMap.find(ch)` -- `Some(keycode)` if `ch` maps to a keycode.
+pub(crate) fn character_map_get(ch: u32) -> Option<u32> {
+    CHAR_TO_KEY.get(&ch).copied()
+}
+
+/// Each code table's rows sorted by key ascending, mirroring `std::map`
+/// iteration order. `Macro.cpp`'s `convert`/`modifyCaseUnicode` and
+/// `ConvertTool.cpp`'s `findKeyCode` all iterate `_codeTable[x].begin()..end()`
+/// and take the *first* matching cell, so the tie-break order (when a char
+/// value appears in more than one row/column, as it does in the collapsed
+/// TCVN3 caps/lower pairs) must match `std::map`'s ascending-key order exactly.
+static SORTED_TABLES: LazyLock<[Vec<(u32, CodeRow)>; 5]> = LazyLock::new(|| {
+    std::array::from_fn(|i| {
+        let ct = match i {
+            0 => CodeTable::Unicode,
+            1 => CodeTable::Tcvn3,
+            2 => CodeTable::VniWindows,
+            3 => CodeTable::UnicodeCompound,
+            _ => CodeTable::Cp1258,
+        };
+        let mut rows: Vec<(u32, CodeRow)> =
+            code_table_map(ct).iter().map(|(&k, &v)| (k, v)).collect();
+        rows.sort_unstable_by_key(|(k, _)| *k);
+        rows
+    })
+});
+
+/// `findKeyCode` (`ConvertTool.cpp:28`) / the inner search loops of
+/// `Macro.cpp`'s `convert`/`modifyCaseUnicode`: scan `_codeTable[code_table]`
+/// in ascending-key order and return `(key, column)` of the first cell whose
+/// `Uint16` value equals `ch`, or `None`.
+pub(crate) fn find_key_code(code_table: CodeTable, ch: u16) -> Option<(u32, usize)> {
+    for &(key, row) in &SORTED_TABLES[code_table as usize] {
+        for (z, &cell) in row.iter().enumerate() {
+            if cell == ch {
+                return Some((key, z));
+            }
+        }
+    }
+    None
+}
+
+/// `_codeTable[code_table][key][k]` -- the raw `Uint16` cell. Returns 0 for an
+/// out-of-range `(key, k)`; every caller reaches this only with a `(key, k)`
+/// that structurally exists (rows have identical lengths across all 5 tables,
+/// and the `k-1`/`k+1` caps toggles stay in bounds because every row length is
+/// even), so the fallback is unreachable in practice.
+pub(crate) fn code_table_cell(code_table: CodeTable, key: u32, k: usize) -> u16 {
+    code_table_map(code_table)
+        .get(&key)
+        .and_then(|row| row.get(k))
+        .copied()
+        .unwrap_or(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
