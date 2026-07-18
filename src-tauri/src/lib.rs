@@ -1,13 +1,22 @@
 mod platform;
 mod settings;
+
+use tauri::Manager;
+
+// The engine/tray/IPC/pasteboard layer is macOS-only: it's built directly on
+// `state.rs`'s `Arc<Mutex<EngineCore>>`/`SharedConfig` (mac-gated) and
+// AppKit (NSPasteboard, NSWorkspace, the status-bar menu). Other targets only
+// get the `platform::start()` no-op stub, same as before this task.
 #[cfg(target_os = "macos")]
 mod state;
-
-use tauri::{
-    menu::{Menu, MenuItem},
-    tray::TrayIconBuilder,
-    Manager,
-};
+#[cfg(target_os = "macos")]
+mod events;
+#[cfg(target_os = "macos")]
+mod pasteboard;
+#[cfg(target_os = "macos")]
+mod commands;
+#[cfg(target_os = "macos")]
+mod tray;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -22,29 +31,59 @@ pub fn run() {
         }));
     }
 
-    builder
+    builder = builder
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_opener::init());
+
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.invoke_handler(tauri::generate_handler![
+            commands::get_settings,
+            commands::set_settings,
+            commands::set_language,
+            commands::set_input_type,
+            commands::set_code_table,
+            commands::set_switch_hotkey,
+            commands::set_convert_hotkey,
+            commands::restore_default_settings,
+            commands::macro_list,
+            commands::macro_add,
+            commands::macro_delete,
+            commands::macro_import,
+            commands::macro_export,
+            commands::convert_clipboard,
+            pasteboard::read_clipboard,
+            pasteboard::write_clipboard,
+            commands::get_permission_status,
+            commands::open_accessibility_settings,
+            commands::restart_app,
+            commands::has_openkey_data,
+            commands::import_openkey_settings,
+            commands::check_update,
+            commands::quit_app,
+        ]);
+    }
+
+    builder
         .setup(|app| {
-            let quit_item = MenuItem::with_id(app, "quit", "Thoát", true, Some("Cmd+Q"))?;
-            let menu = Menu::with_items(app, &[&quit_item])?;
+            #[cfg(target_os = "macos")]
+            {
+                let handles = platform::start(app.handle());
+                app.manage(handles.engine);
+                app.manage(handles.config);
 
-            TrayIconBuilder::new()
-                .icon(app.default_window_icon().unwrap().clone())
-                .menu(&menu)
-                .on_menu_event(|app, event| {
-                    if event.id.as_ref() == "quit" {
-                        app.exit(0);
-                    }
-                })
-                .build(app)?;
+                let settings = settings::Settings::load();
+                tray::build(app.handle(), &settings)?;
+            }
 
-            // Start the platform keystroke interception + Vietnamese injection.
-            platform::start();
+            #[cfg(not(target_os = "macos"))]
+            {
+                platform::start();
+            }
 
             Ok(())
         })

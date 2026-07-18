@@ -29,6 +29,7 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSNotificationName};
 use parking_lot::Mutex;
+use tauri::AppHandle;
 
 use super::tap::TapControl;
 use super::{ffi, smart_switch};
@@ -36,8 +37,12 @@ use crate::state::{EngineCore, SharedConfig};
 
 /// Register the four NSWorkspace lifecycle observers. Must run on the main
 /// thread. The observer tokens are leaked (the observers live for the whole
-/// process), so nothing needs to be kept by the caller.
+/// process), so nothing needs to be kept by the caller. `app` lets the
+/// activation observer sync the tray after a smart-switch language/code-table
+/// change (`smart_switch::on_active_app`); it's already on the main thread
+/// here, so that sync can call straight through rather than posting.
 pub fn register(
+    app: AppHandle,
     engine: Arc<Mutex<EngineCore>>,
     config: Arc<SharedConfig>,
     tap_control: Arc<TapControl>,
@@ -47,11 +52,12 @@ pub fn register(
 
     // App activation: cache bundle id + smart-switch.
     {
+        let app = app.clone();
         let engine = engine.clone();
         let config = config.clone();
         let own_bundle = own_bundle.clone();
         let block = RcBlock::new(move |_notif: NonNull<NSNotification>| {
-            smart_switch::on_active_app(&engine, &config, own_bundle.as_deref());
+            smart_switch::on_active_app(&app, &engine, &config, own_bundle.as_deref());
         });
         // SAFETY: framework notification-name constant.
         add_observer(&center, unsafe { NSWorkspaceDidActivateApplicationNotification }, &block);

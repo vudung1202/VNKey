@@ -1,7 +1,7 @@
 //! macOS platform layer: CGEventTap keystroke interception + Vietnamese text
 //! injection.
 
-mod ffi;
+pub(crate) mod ffi;
 mod inject;
 pub(crate) mod hotkey;
 mod layout;
@@ -14,10 +14,19 @@ mod workspace;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
+use tauri::AppHandle;
 use vnkey_engine::Engine;
 
 use crate::settings::Settings;
 use crate::state::{EngineCore, SharedConfig};
+
+/// The shared engine/config handles `lib.rs`'s `setup` manages as Tauri
+/// state, so `commands.rs`'s `#[tauri::command]` fns can reach them via
+/// `app.state::<Arc<Mutex<EngineCore>>>()`/`app.state::<Arc<SharedConfig>>()`.
+pub struct PlatformHandles {
+    pub engine: Arc<Mutex<EngineCore>>,
+    pub config: Arc<SharedConfig>,
+}
 
 /// Initialise the macOS platform layer: load persisted settings, request
 /// Accessibility permission if needed, build the shared engine state from
@@ -26,7 +35,12 @@ use crate::state::{EngineCore, SharedConfig};
 /// Settings are loaded (and, on first run, persisted with defaults) before
 /// the engine and tap thread are built, so the very first keystroke sees the
 /// user's actual configuration rather than `EngineOptions::default()`.
-pub fn start() {
+///
+/// `app` is threaded into the NSWorkspace observers and the tap thread so
+/// they can post tray/UI sync back to the main thread (`crate::tray`) after a
+/// smart-switch or hotkey language change, without either of those paths
+/// calling AppKit off the main thread themselves.
+pub fn start(app: &AppHandle) -> PlatformHandles {
     let settings = Settings::load();
     let opts = settings.to_engine_options();
 
@@ -60,7 +74,9 @@ pub fn start() {
 
     // Register NSWorkspace lifecycle observers on the main thread (AppKit
     // requirement). This runs inside Tauri's `setup`, on the main run loop.
-    workspace::register(core.clone(), config.clone(), tap_control.clone());
+    workspace::register(app.clone(), core.clone(), config.clone(), tap_control.clone());
 
-    tap::spawn(core, config, tap_control);
+    tap::spawn(app.clone(), core.clone(), config.clone(), tap_control);
+
+    PlatformHandles { engine: core, config }
 }

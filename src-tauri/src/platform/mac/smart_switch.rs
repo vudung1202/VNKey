@@ -18,6 +18,7 @@
 use std::sync::atomic::Ordering;
 
 use parking_lot::Mutex;
+use tauri::AppHandle;
 use vnkey_engine::{CodeTable, SmartSwitchTable};
 
 use super::ffi;
@@ -91,8 +92,12 @@ pub fn resolve_active_app(
 
 /// Main-thread activation handler (`NSWorkspaceDidActivateApplication`): cache
 /// the frontmost bundle id for the tap thread's per-app quirks (Task 8 finding
-/// 3), then run smart-switch if enabled.
-pub fn on_active_app(engine: &Mutex<EngineCore>, config: &SharedConfig, own_bundle: Option<&str>) {
+/// 3), then run smart-switch if enabled. `app` is used to sync the tray/UI
+/// after a language or code-table change; this handler already runs on the
+/// main thread (the observer that calls it is registered there), so it calls
+/// [`crate::tray::apply_tray_state`] directly rather than posting through
+/// [`crate::tray::update_tray`].
+pub fn on_active_app(app: &AppHandle, engine: &Mutex<EngineCore>, config: &SharedConfig, own_bundle: Option<&str>) {
     // `queryFrontMostApp` — safe here because we are on the main thread.
     let Some(bundle_id) = ffi::frontmost_bundle_id() else {
         return;
@@ -121,17 +126,26 @@ pub fn on_active_app(engine: &Mutex<EngineCore>, config: &SharedConfig, own_bund
         current_code_table,
         remember_code,
     );
+    let mut state_changed = false;
     if let Some(new_enabled) = decision.new_enabled {
         config.enabled.store(new_enabled, Ordering::Relaxed);
         core.engine.start_new_session();
-        // TODO(Task 12): notify the tray/UI that the language changed.
+        state_changed = true;
     }
     if let Some(new_code_table) = decision.new_code_table {
         config.set_code_table(new_code_table);
         core.engine.set_code_table(new_code_table);
-        // TODO(Task 12): notify the tray/UI that the code table changed.
+        state_changed = true;
     }
     drop(core);
+
+    // Sync the tray + emit `status-changed` for the UI. Called at most once
+    // per activation, after both possible changes above, since it reads the
+    // resulting language/code-table straight off `config` rather than taking
+    // the individual deltas.
+    if state_changed {
+        crate::tray::sync_after_live_change(app, config);
+    }
 
     // TODO(Task 11): if `decision.registered`, persist the smart-switch blob
     // (`EngineCore::smart_switch.to_blob()` -> NSUserDefaults). The table is

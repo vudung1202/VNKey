@@ -36,6 +36,7 @@ use std::sync::atomic::Ordering;
 use objc2_core_foundation::{CFMachPort, CFRetained};
 use objc2_core_graphics::{CGEvent, CGEventSource, CGEventTapProxy, CGEventType};
 use parking_lot::Mutex;
+use tauri::AppHandle;
 use vnkey_engine::{KeyEvent, KeyEventState};
 
 use super::hotkey::HotkeyState;
@@ -96,6 +97,7 @@ impl TapControl {
 /// Shared, process-lifetime context handed to the C callback via a leaked
 /// `*mut c_void`. Created and mutated only on the tap thread.
 struct TapContext {
+    app_handle: AppHandle,
     engine: Arc<Mutex<EngineCore>>,
     config: Arc<SharedConfig>,
     /// Private source, kept alive for the process; also used to recognise our
@@ -113,19 +115,23 @@ struct TapContext {
 
 /// Spawn the event-tap thread. Moves the shared state in; the thread lives for
 /// the whole process. `tap_control` receives the tap's mach port once created,
-/// so the sleep/wake observer can toggle it.
+/// so the sleep/wake observer can toggle it. `app_handle` lets the callback
+/// post a tray/UI sync to the main thread after a hotkey language switch
+/// (`crate::tray::notify_language_switched`) without calling AppKit itself.
 pub fn spawn(
+    app_handle: AppHandle,
     engine: Arc<Mutex<EngineCore>>,
     config: Arc<SharedConfig>,
     tap_control: Arc<TapControl>,
 ) {
     std::thread::Builder::new()
         .name("vnkey-event-tap".into())
-        .spawn(move || run_tap_thread(engine, config, tap_control))
+        .spawn(move || run_tap_thread(app_handle, engine, config, tap_control))
         .expect("VNKey: failed to spawn event-tap thread");
 }
 
 fn run_tap_thread(
+    app_handle: AppHandle,
     engine: Arc<Mutex<EngineCore>>,
     config: Arc<SharedConfig>,
     tap_control: Arc<TapControl>,
@@ -140,6 +146,7 @@ fn run_tap_thread(
     // leaks it: the tap thread never stops, so there is no point at which the
     // callback could still fire after a free — no double-free is possible.
     let ctx_ptr = Box::into_raw(Box::new(TapContext {
+        app_handle,
         engine,
         config,
         source,
@@ -227,6 +234,11 @@ unsafe extern "C-unwind" fn tap_callback(
             // Remember the user's choice for the frontmost app (OpenKey
             // `OnInputMethodChanged`).
             smart_switch::record_manual_switch(&mut core, &ctx.config);
+            drop(core);
+            // Fire-and-forget: post the tray/UI sync to the main thread. Must
+            // not block this callback (see `notify_language_switched`'s doc
+            // comment).
+            crate::tray::notify_language_switched(&ctx.app_handle, &ctx.config);
             return core::ptr::null_mut();
         }
     } else if ty == CGEventType::FlagsChanged {
@@ -241,6 +253,8 @@ unsafe extern "C-unwind" fn tap_callback(
             let mut core = ctx.engine.lock();
             hotkey::switch_language(&ctx.config, &mut core.engine, switch_hotkey);
             smart_switch::record_manual_switch(&mut core, &ctx.config);
+            drop(core);
+            crate::tray::notify_language_switched(&ctx.app_handle, &ctx.config);
             return core::ptr::null_mut();
         }
         if action.temp_off_spelling || action.temp_off_openkey {

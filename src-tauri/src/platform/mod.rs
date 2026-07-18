@@ -6,8 +6,8 @@ pub mod mac;
 
 /// Start the platform keystroke interception + injection layer.
 #[cfg(target_os = "macos")]
-pub fn start() {
-    mac::start();
+pub fn start(app: &tauri::AppHandle) -> mac::PlatformHandles {
+    mac::start(app)
 }
 
 #[cfg(not(target_os = "macos"))]

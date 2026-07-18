@@ -191,9 +191,10 @@ impl HotkeyState {
 
 /// `switchLanguage` (`OpenKey.mm:533-542`): flip `vLanguage`, beep if the
 /// hotkey's beep bit is set, start a new engine session. Tray/UI sync
-/// (`[appDelegate onImputMethodChanged:YES]`) is deferred to Task 12 -- the
-/// tray will read the same `enabled` atomic this flips. Must not block: only
-/// touches the atomic and the engine lock the caller already holds, no IPC.
+/// (`[appDelegate onImputMethodChanged:YES]`) is the caller's job -- `tap.rs`
+/// calls `crate::tray::notify_language_switched` right after this, which
+/// reads the same `enabled` atomic this flips. Must not block: only touches
+/// the atomic and the engine lock the caller already holds, no IPC.
 pub fn switch_language(config: &SharedConfig, engine: &mut Engine, switch_hotkey: u32) {
     use std::sync::atomic::Ordering;
 
