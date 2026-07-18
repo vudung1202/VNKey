@@ -107,6 +107,12 @@ pub struct SharedConfig {
     /// instead of calling `NSWorkspace.frontmostApplication` off-thread — this
     /// closes Task 8 finding 3. `None` until the first activation notification.
     frontmost_bundle_id: Mutex<Option<String>>,
+    /// Set by the `set_hotkey_recording` IPC command while the Control
+    /// Panel's `HotkeyRecorder` has focus (Task 13). The tap callback checks
+    /// this immediately after the self-event filter and passes every event
+    /// through untouched while it's `true`, so the recorder sees the raw
+    /// chord instead of the tap swallowing/rewriting it.
+    pub hotkey_recording: AtomicBool,
 }
 
 impl SharedConfig {
@@ -125,6 +131,7 @@ impl SharedConfig {
             remember_code: AtomicBool::new(opts.remember_code),
             code_table: AtomicU8::new(opts.code_table as u8),
             frontmost_bundle_id: Mutex::new(None),
+            hotkey_recording: AtomicBool::new(false),
         }
     }
 
@@ -192,5 +199,21 @@ mod tests {
         // OpenKey defaults: both on.
         assert!(config.use_smart_switch_key.load(Ordering::Relaxed));
         assert!(config.remember_code.load(Ordering::Relaxed));
+    }
+
+    /// Task 13: the HotkeyRecorder's tap-passthrough flag must start off (the
+    /// tap must process keys normally until the UI explicitly starts
+    /// recording) and reflect whatever the `set_hotkey_recording` command
+    /// last stored.
+    #[test]
+    fn hotkey_recording_defaults_false_and_toggles() {
+        let config = SharedConfig::new(&EngineOptions::default());
+        assert!(!config.hotkey_recording.load(Ordering::Relaxed));
+
+        config.hotkey_recording.store(true, Ordering::Relaxed);
+        assert!(config.hotkey_recording.load(Ordering::Relaxed));
+
+        config.hotkey_recording.store(false, Ordering::Relaxed);
+        assert!(!config.hotkey_recording.load(Ordering::Relaxed));
     }
 }

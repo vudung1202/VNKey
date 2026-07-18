@@ -308,6 +308,21 @@ pub fn check_update() -> Option<UpdateInfo> {
     None
 }
 
+/// Task 13 addition (not part of the Task 12 IPC surface): the Control
+/// Panel's `HotkeyRecorder` calls this with `true` on focus and `false` on
+/// blur so the CGEventTap passes every key through untouched while a new
+/// hotkey chord is being captured (`tap.rs`'s step 1.5, right after the
+/// self-event filter). Not a persisted [`Settings`] field -- it's transient
+/// UI-focus state, so this stores straight to [`SharedConfig`] rather than
+/// going through [`apply_and_broadcast`].
+#[tauri::command]
+pub fn set_hotkey_recording(app: AppHandle, recording: bool) {
+    let config = app.state::<Arc<SharedConfig>>();
+    config
+        .hotkey_recording
+        .store(recording, std::sync::atomic::Ordering::Relaxed);
+}
+
 #[tauri::command]
 pub fn quit_app(app: AppHandle) {
     app.exit(0);

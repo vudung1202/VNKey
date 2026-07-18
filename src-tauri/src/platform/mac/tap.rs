@@ -9,7 +9,10 @@
 //!   0. re-enable the tap if it was disabled (the fix over OpenKey — OpenKey
 //!      never handles `kCGEventTapDisabledBy*`, so a slow callback silently
 //!      kills its own tap);
-//!   1. skip VNKey's own injected events (private source match);
+//!   1. skip VNKey's own injected events (private source match), and also
+//!      pass everything through untouched while the Control Panel's
+//!      HotkeyRecorder is capturing a new hotkey (`hotkey_recording`, Task
+//!      13);
 //!   2. layout-compat keycode convert (`vPerformLayoutCompat`, KeyDown only —
 //!      `hotkey.rs`/`layout.rs`, `OpenKey.mm:614-617`);
 //!   3. hotkey detect: key-based switch hotkey on KeyDown, modifier-only
@@ -208,6 +211,13 @@ unsafe extern "C-unwind" fn tap_callback(
     // 1. Skip events VNKey itself generated.
     // SAFETY: live event.
     if unsafe { ffi::event_source_state_id(event_ref) } == ctx.source_state_id {
+        return event.as_ptr();
+    }
+
+    // 1.5. The Control Panel's HotkeyRecorder is capturing input (Task 13):
+    // pass every event through untouched so it sees the raw chord instead of
+    // the tap swallowing/rewriting it.
+    if ctx.config.hotkey_recording.load(Ordering::Relaxed) {
         return event.as_ptr();
     }
 

@@ -65,8 +65,20 @@ pub fn run() {
             commands::import_openkey_settings,
             commands::check_update,
             commands::quit_app,
+            commands::set_hotkey_recording,
         ]);
     }
+
+    // Task 13: the `settings` window is created once and reused (the tray's
+    // `show_window` just shows/focuses it) -- closing it via the titlebar
+    // button must hide it, not destroy it, or the tray's "Bảng điều khiển"
+    // item would have nothing left to reopen.
+    builder = builder.on_window_event(|window, event| {
+        if window.label() == "settings" && let tauri::WindowEvent::CloseRequested { api, .. } = event {
+            api.prevent_close();
+            let _ = window.hide();
+        }
+    });
 
     builder
         .setup(|app| {
