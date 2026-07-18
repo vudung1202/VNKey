@@ -129,14 +129,28 @@ unsafe extern "C-unwind" fn tap_callback(
         return event.as_ptr();
     }
 
-    // 2. Mouse -> start a new word, pass the click through.
+    // 2. Mouse -> full session reset (fidelity to OpenKey), pass the click
+    // through. OpenKey's `RequestNewSession()` (OpenKey.mm:147-154) does not
+    // call `startNewSession` directly -- it drives
+    // `vKeyHandleEvent(Mouse, MouseDown, 0)` and discards the returned
+    // `HookState`. A Mouse event always takes the break/word-break path
+    // (`isWordBreak` is unconditionally true for `KeyEvent::Mouse`), which
+    // additionally clears `special_char` and `typing_states`
+    // (Engine.cpp:1379-1382) on top of everything `start_new_session()`
+    // resets -- caches `start_new_session()` alone leaves stale (stale word
+    // history can mis-transform a later DELETE across the click boundary).
+    // Reproduce that by driving the same event through the engine, ignoring
+    // its `HookState` like OpenKey does, instead of calling
+    // `start_new_session()` directly.
     if ty == CGEventType::LeftMouseDown
         || ty == CGEventType::RightMouseDown
         || ty == CGEventType::LeftMouseDragged
         || ty == CGEventType::RightMouseDragged
     {
         let mut core = ctx.engine.lock();
-        core.engine.start_new_session();
+        let _ = core
+            .engine
+            .handle_event(KeyEvent::Mouse, KeyEventState::MouseDown, 0, 0, false);
         if is_double_code(ctx.code_table) {
             core.sync_key.clear();
         }
@@ -187,14 +201,19 @@ unsafe extern "C-unwind" fn tap_callback(
         (snap, sk)
     };
 
-    // Resolve per-app quirks (queries NSWorkspace on this thread).
-    let quirks = quirks::resolve_quirks(ffi::frontmost_bundle_id().as_deref());
-
     let mut sink = CgSink::new(&ctx.source, proxy);
     let mut ictx = InjectCtx {
         code_table: ctx.code_table,
         sync_key: &mut sync_key,
-        quirks,
+        // Per-app quirks need an NSWorkspace round-trip + String allocation
+        // (`frontmost_bundle_id`), but only the WillProcess/Restore/
+        // RestoreAndStartNewSession/ReplaceMacro branches (and the rare
+        // 2-byte Unicode-Compound DoNothing-delete case) ever read them -- a
+        // plain DoNothing key never does. Pass a resolver instead of
+        // resolving eagerly here; `InjectCtx::quirks` calls it lazily, at
+        // most once for this keystroke.
+        quirks_fn: || quirks::resolve_quirks(ffi::frontmost_bundle_id().as_deref()),
+        quirks_cache: None,
         fix_recommend_browser: ctx.config.fix_recommend_browser.load(Ordering::Relaxed),
         fix_chromium_browser: ctx.config.fix_chromium_browser.load(Ordering::Relaxed),
         send_step_by_step: ctx.config.send_key_step_by_step.load(Ordering::Relaxed),

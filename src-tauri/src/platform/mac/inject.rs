@@ -108,7 +108,14 @@ pub struct InjectCtx<'a> {
     pub code_table: CodeTable,
     /// OpenKey's `_syncKey` stack (owned by the tap thread).
     pub sync_key: &'a mut Vec<u8>,
-    pub quirks: AppQuirks,
+    /// Resolves per-app quirks (`resolve_quirks`/`frontmost_bundle_id` — an
+    /// NSWorkspace round-trip + String allocation). Not every dispatch branch
+    /// needs quirks (a plain `DoNothing` key never does), so this is a
+    /// resolver rather than a resolved value: [`InjectCtx::quirks`] calls it
+    /// at most once per keystroke, only when a branch that actually reads
+    /// quirks is reached, and caches the result in `quirks_cache`.
+    pub quirks_fn: fn() -> AppQuirks,
+    pub quirks_cache: Option<AppQuirks>,
     pub fix_recommend_browser: bool,
     pub fix_chromium_browser: bool,
     pub send_step_by_step: bool,
@@ -118,8 +125,19 @@ pub struct InjectCtx<'a> {
 }
 
 impl InjectCtx<'_> {
+    /// Per-app quirks for the frontmost app, resolved via `quirks_fn` on first
+    /// access and cached for the rest of this dispatch call.
+    fn quirks(&mut self) -> AppQuirks {
+        if let Some(q) = self.quirks_cache {
+            return q;
+        }
+        let q = (self.quirks_fn)();
+        self.quirks_cache = Some(q);
+        q
+    }
+
     /// `shouldUseRecommendWorkaround` (`OpenKey.mm:189`).
-    fn should_use_recommend_workaround(&self) -> bool {
+    fn should_use_recommend_workaround(&mut self) -> bool {
         if !self.fix_recommend_browser {
             return false;
         }
@@ -128,12 +146,12 @@ impl InjectCtx<'_> {
         }
         // Unknown app -> quirks all-false -> `!recommend_disabled` == true,
         // matching OpenKey's "topApp == nil -> return true".
-        !self.quirks.recommend_disabled
+        !self.quirks().recommend_disabled
     }
 
     /// `shouldUseSelectionReplacement` (`OpenKey.mm:196`).
-    fn should_use_selection_replacement(&self) -> bool {
-        self.spotlight_visible || self.quirks.recommend_disabled
+    fn should_use_selection_replacement(&mut self) -> bool {
+        self.spotlight_visible || self.quirks().recommend_disabled
     }
 }
 
@@ -170,9 +188,15 @@ pub fn dispatch<S: EventSink>(
                     2 => {
                         // delete key
                         if let Some(&last) = ctx.sync_key.last() {
+                            // Short-circuits before `ctx.quirks()` (the lazy
+                            // NSWorkspace resolve) whenever `code_table ==
+                            // VniWindows`, exactly like the eagerly-resolved
+                            // version did -- so a VNI DoNothing-delete still
+                            // never touches quirks, only Unicode Compound
+                            // does.
                             if last > 1
                                 && (ctx.code_table == CodeTable::VniWindows
-                                    || !ctx.quirks.unicode_compound_app_prefix)
+                                    || !ctx.quirks().unicode_compound_app_prefix)
                             {
                                 sink.backspace();
                             }
@@ -193,7 +217,7 @@ pub fn dispatch<S: EventSink>(
 
             // Autocomplete fix (`OpenKey.mm:742-754`).
             if ctx.should_use_recommend_workaround() && snap.ext_code != 4 {
-                if ctx.fix_chromium_browser && ctx.quirks.unicode_compound_app_exact {
+                if ctx.fix_chromium_browser && ctx.quirks().unicode_compound_app_exact {
                     // TODO(Task 9/10): chromium Shift+Left workaround. Off by
                     // default (fix_chromium_browser == false), so this branch is
                     // never taken in this task; kept for structural fidelity.
@@ -449,7 +473,7 @@ fn send_backspace<S: EventSink>(sink: &mut S, ctx: &mut InjectCtx) {
         if let Some(&last) = ctx.sync_key.last() {
             if last > 1
                 && !(ctx.code_table == CodeTable::UnicodeCompound
-                    && ctx.quirks.unicode_compound_app_prefix)
+                    && ctx.quirks().unicode_compound_app_prefix)
             {
                 sink.backspace();
             }
@@ -466,7 +490,7 @@ fn send_shift_left_arrow<S: EventSink>(sink: &mut S, ctx: &mut InjectCtx) {
         if let Some(&last) = ctx.sync_key.last() {
             if last > 1
                 && !(ctx.code_table == CodeTable::UnicodeCompound
-                    && ctx.quirks.unicode_compound_app_prefix)
+                    && ctx.quirks().unicode_compound_app_prefix)
             {
                 sink.shift_left_arrow();
             }
@@ -480,7 +504,7 @@ fn send_empty_character<S: EventSink>(sink: &mut S, ctx: &mut InjectCtx) {
     if is_double_code(ctx.code_table) {
         ctx.sync_key.push(1);
     }
-    let ch: u16 = if ctx.quirks.nice_space { 0x200C } else { 0x202F };
+    let ch: u16 = if ctx.quirks().nice_space { 0x200C } else { 0x202F };
     sink.unicode_string(&[ch]);
 }
 
@@ -573,7 +597,8 @@ mod tests {
         InjectCtx {
             code_table,
             sync_key,
-            quirks: AppQuirks::default(),
+            quirks_fn: || AppQuirks::default(),
+            quirks_cache: None,
             fix_recommend_browser: false,
             fix_chromium_browser: false,
             send_step_by_step: false,
@@ -859,7 +884,7 @@ mod tests {
     fn empty_character_uses_nice_space_for_sublime() {
         let mut sk = Vec::new();
         let mut c = ctx(CodeTable::Unicode, &mut sk);
-        c.quirks = super::super::quirks::resolve_quirks(Some("com.sublimetext.3"));
+        c.quirks_fn = || super::super::quirks::resolve_quirks(Some("com.sublimetext.3"));
         let mut sink = MockSink::default();
         send_empty_character(&mut sink, &mut c);
         assert_eq!(sink.ops, vec![SinkOp::Unicode(vec![0x200C])]);
