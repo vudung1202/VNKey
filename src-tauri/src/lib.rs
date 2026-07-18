@@ -69,12 +69,14 @@ pub fn run() {
         ]);
     }
 
-    // Task 13: the `settings` window is created once and reused (the tray's
-    // `show_window` just shows/focuses it) -- closing it via the titlebar
-    // button must hide it, not destroy it, or the tray's "Bảng điều khiển"
-    // item would have nothing left to reopen.
+    // Task 13/14: all 4 windows are created once and reused (the tray's
+    // `show_window` just shows/focuses them) -- closing any of them via the
+    // titlebar button must hide it, not destroy it, or the corresponding
+    // tray menu item ("Bảng điều khiển"/"Gõ tắt"/"Công cụ chuyển mã"/"Giới
+    // thiệu") would have nothing left to reopen.
     builder = builder.on_window_event(|window, event| {
-        if window.label() == "settings" && let tauri::WindowEvent::CloseRequested { api, .. } = event {
+        let is_managed_window = matches!(window.label(), "settings" | "macro" | "convert" | "about");
+        if is_managed_window && let tauri::WindowEvent::CloseRequested { api, .. } = event {
             api.prevent_close();
             let _ = window.hide();
         }

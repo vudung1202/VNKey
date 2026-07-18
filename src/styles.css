@@ -254,6 +254,25 @@ body {
   gap: 8px;
 }
 
+.about-window {
+  align-items: center;
+  text-align: center;
+}
+
+.about-window .version {
+  color: var(--text-secondary);
+  margin-top: -4px;
+}
+
+.about-window .about-links {
+  display: flex;
+  gap: 8px;
+}
+
+.about-window .window-actions {
+  margin-top: auto;
+}
+
 .footer {
   display: flex;
   justify-content: flex-end;

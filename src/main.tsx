@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
+import { About } from "./components/About/About";
 import { ControlPanel } from "./components/ControlPanel/ControlPanel";
 import { ConvertTool } from "./components/ConvertTool/ConvertTool";
 import { MacroEditor } from "./components/MacroEditor/MacroEditor";
@@ -17,7 +18,8 @@ function Root() {
       return <MacroEditor />;
     case "convert":
       return <ConvertTool />;
-    // `about` is a separate window built later in Task 14.
+    case "about":
+      return <About />;
     default:
       return <p>{label}</p>;
   }
