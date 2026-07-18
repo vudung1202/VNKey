@@ -212,6 +212,48 @@ body {
   gap: 8px;
 }
 
+.group-box {
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.group-box legend {
+  padding: 0 4px;
+  color: var(--text-secondary);
+}
+
+.checkbox-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 12px;
+}
+
+.code-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.code-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.disabled-checkbox {
+  color: var(--text-secondary);
+}
+
+.window-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .footer {
   display: flex;
   justify-content: flex-end;
