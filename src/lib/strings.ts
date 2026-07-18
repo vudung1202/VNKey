@@ -1,8 +1,7 @@
 // Every Vietnamese UI string the Control Panel uses. Labels are copied
 // verbatim from OpenKey's own UI (`Base.lproj/Main.storyboard`,
 // `ViewController.m`, `AppDelegate.m`) per the task brief's requirement that
-// labels must match OpenKey exactly -- including OpenKey's own "Coleman"
-// typo in the layout-compat checkbox.
+// labels must match OpenKey exactly.
 export const strings = {
   topBar: {
     inputType: "Kiểu gõ:",
@@ -42,7 +41,7 @@ export const strings = {
 
   macroTab: {
     useMacro: "Cho phép gõ tắt",
-    quickTelex: "Gõ nhanh (cc=ch, gg=gi, kk=kh, nn=ng, qq=qu, pp=ph, tt=th)",
+    quickTelex: "Gõ nhanh (cc=ch, gg=gi, kk=kh, nn=ng, qq=qu, pp=ph, tt=th, uu=ươ)",
     useMacroInEnglishMode: "Gõ tắt cả khi tắt gõ tiếng Việt",
     autoCapsMacro: "Tự động viết hoa theo phím tắt",
     quickStartConsonant: "Gõ tắt phụ âm đầu: f→ph, j→gi, w→qu",
@@ -58,7 +57,7 @@ export const strings = {
     sendKeyStepByStep: "Gửi từng phím (bật nếu bị lỗi)",
     checkUpdateOnStartup: "Kiểm tra bản mới lúc khởi động",
     fixChromiumBrowser: "Sửa lỗi trên Chromium (beta)",
-    performLayoutCompat: "Tương thích Telex trên các Layout khác (Dvorak, Coleman, ...)",
+    performLayoutCompat: "Tương thích Telex trên các Layout khác (Dvorak, Colemak, ...)",
     checkUpdate: "Kiểm tra bản mới...",
     checking: "Đang kiểm tra...",
   },

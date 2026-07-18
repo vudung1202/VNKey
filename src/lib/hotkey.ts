@@ -1,3 +1,5 @@
+import { VKEYCODE_TO_DISPLAY_NAME } from "./keycodes";
+
 // Packed hotkey (u32) encode/decode, ported from OpenKey's `vSwitchKeyStatus`
 // bit layout (`ViewController.m` `onControlSwitchKey`/`onOptionSwitchKey`/
 // `onCommandSwitchKey`/`onShiftSwitchKey`/`onBeepSound`, and the key-change
@@ -57,9 +59,14 @@ export function encodeHotkey(hotkey: DecodedHotkey): number {
   return packed >>> 0;
 }
 
-// Mirrors `MyTextField.m`'s `setTextByChar:`.
+// Mirrors `MyTextField.m`'s `setTextByChar:`, extended to show a proper name
+// for the non-printable keys in `keycodes.ts`'s `VKEYCODE_TO_DISPLAY_NAME`
+// (Enter/Tab/Escape/arrows/Home/End/PageUp/PageDown/F1-F12) instead of
+// `String.fromCharCode` on their vkeycode, which is what gets packed as
+// `char` for those keys (see `HotkeyRecorder`) and does not represent an
+// actual character.
 export function keyDisplayText(char: number): string {
   if (char === SPACE_KEYCODE) return "Space";
   if (char === MODIFIER_ONLY_KEYCODE) return "";
-  return String.fromCharCode(char);
+  return VKEYCODE_TO_DISPLAY_NAME[char] ?? String.fromCharCode(char);
 }

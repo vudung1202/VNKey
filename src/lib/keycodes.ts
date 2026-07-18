@@ -25,3 +25,35 @@ export const DOM_CODE_TO_VKEYCODE: Record<string, number> = {
   F1: 0x7a, F2: 0x78, F3: 0x63, F4: 0x76, F5: 0x60, F6: 0x61, F7: 0x62, F8: 0x64,
   F9: 0x65, F10: 0x6d, F11: 0x67, F12: 0x6f,
 };
+
+// vkeycode -> display name, for the non-printable keys above (`HotkeyRecorder`
+// packs the vkeycode itself as the "char" byte for these -- see its
+// `e.key.length !== 1` fallback -- so `keyDisplayText` (`lib/hotkey.ts`) needs
+// this to show e.g. "Enter"/"F1" instead of `String.fromCharCode` on the
+// vkeycode's numeric value, which coincidentally spells out an unrelated
+// ASCII character (0x24 -> "$", 0x7a -> "z").
+export const VKEYCODE_TO_DISPLAY_NAME: Record<number, string> = {
+  [DOM_CODE_TO_VKEYCODE.Enter]: "Enter",
+  [DOM_CODE_TO_VKEYCODE.Tab]: "Tab",
+  [DOM_CODE_TO_VKEYCODE.Escape]: "Escape",
+  [DOM_CODE_TO_VKEYCODE.ArrowLeft]: "←",
+  [DOM_CODE_TO_VKEYCODE.ArrowRight]: "→",
+  [DOM_CODE_TO_VKEYCODE.ArrowUp]: "↑",
+  [DOM_CODE_TO_VKEYCODE.ArrowDown]: "↓",
+  [DOM_CODE_TO_VKEYCODE.Home]: "Home",
+  [DOM_CODE_TO_VKEYCODE.End]: "End",
+  [DOM_CODE_TO_VKEYCODE.PageUp]: "Page Up",
+  [DOM_CODE_TO_VKEYCODE.PageDown]: "Page Down",
+  [DOM_CODE_TO_VKEYCODE.F1]: "F1",
+  [DOM_CODE_TO_VKEYCODE.F2]: "F2",
+  [DOM_CODE_TO_VKEYCODE.F3]: "F3",
+  [DOM_CODE_TO_VKEYCODE.F4]: "F4",
+  [DOM_CODE_TO_VKEYCODE.F5]: "F5",
+  [DOM_CODE_TO_VKEYCODE.F6]: "F6",
+  [DOM_CODE_TO_VKEYCODE.F7]: "F7",
+  [DOM_CODE_TO_VKEYCODE.F8]: "F8",
+  [DOM_CODE_TO_VKEYCODE.F9]: "F9",
+  [DOM_CODE_TO_VKEYCODE.F10]: "F10",
+  [DOM_CODE_TO_VKEYCODE.F11]: "F11",
+  [DOM_CODE_TO_VKEYCODE.F12]: "F12",
+};

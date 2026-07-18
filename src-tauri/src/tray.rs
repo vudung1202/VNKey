@@ -395,7 +395,8 @@ fn set_code_table(app: &AppHandle, code_table: u8) {
 
 /// Called from the hotkey path (tap thread, fire-and-forget) and the
 /// smart-switch observer (already on the main thread) to sync the tray +
-/// emit `status-changed` after a change that bypasses `apply_and_broadcast`.
+/// emit `status-changed`/`settings-changed` after a change that bypasses
+/// `apply_and_broadcast`.
 ///
 /// Also persists the live state (Task 12 review fix): both callers are on
 /// the main thread by the time this runs (the hotkey path hops here via
@@ -404,10 +405,15 @@ fn set_code_table(app: &AppHandle, code_table: u8) {
 /// no AppKit/disk I/O is added to the tap thread's callback. Without this, a
 /// manual language switch or smart-switch code-table change would be lost on
 /// restart unless a later menu/IPC action happened to save it first.
+///
+/// Also emits `settings-changed` (Task 13 review fix) so the Control Panel,
+/// which mirrors `Settings` purely off that event, picks up hotkey/smart-
+/// switch-driven changes too -- not just changes made through IPC commands.
 pub(crate) fn sync_after_live_change(app: &AppHandle, config: &SharedConfig) {
     let settings = live_settings(config);
     apply_tray_state(app, &settings);
     crate::events::status_changed(app, &settings);
+    crate::events::settings_changed(app, &settings);
     let _ = settings.save();
 }
 

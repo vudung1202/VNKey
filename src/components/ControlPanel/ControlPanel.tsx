@@ -22,9 +22,10 @@ export function ControlPanel() {
     getSettings().then(setSettings);
 
     // Every mutating IPC command persists + broadcasts `settings-changed`
-    // server-side (`apply_and_broadcast`); the UI stays a passive mirror of
-    // that broadcast instead of hand-maintaining local state, so it also
-    // picks up tray/hotkey-driven changes for free.
+    // server-side (`apply_and_broadcast`), and so does the tray/hotkey/
+    // smart-switch live-change path (`tray::sync_after_live_change`); the UI
+    // stays a passive mirror of that broadcast instead of hand-maintaining
+    // local state, so it picks up tray/hotkey-driven changes for free too.
     const unlisten = listen<Settings>("settings-changed", (event) => {
       setSettings(event.payload);
     });
