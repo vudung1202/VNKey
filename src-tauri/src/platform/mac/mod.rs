@@ -14,18 +14,21 @@ mod workspace;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
-use vnkey_engine::{Engine, EngineOptions};
+use vnkey_engine::Engine;
 
+use crate::settings::Settings;
 use crate::state::{EngineCore, SharedConfig};
 
-/// Initialise the macOS platform layer: request Accessibility permission if
-/// needed, build the shared engine state with default options, and spawn the
-/// event-tap thread.
+/// Initialise the macOS platform layer: load persisted settings, request
+/// Accessibility permission if needed, build the shared engine state from
+/// those settings, and spawn the event-tap thread.
 ///
-/// Engine options are hardcoded to `EngineOptions::default()` for this task
-/// (Telex, Unicode, Vietnamese on); the settings UI wiring is a later task.
+/// Settings are loaded (and, on first run, persisted with defaults) before
+/// the engine and tap thread are built, so the very first keystroke sees the
+/// user's actual configuration rather than `EngineOptions::default()`.
 pub fn start() {
-    let opts = EngineOptions::default();
+    let settings = Settings::load();
+    let opts = settings.to_engine_options();
 
     // Accessibility: prompt once if not yet trusted. We still spawn the tap —
     // it fails softly if permission is missing, and the user can grant it and
@@ -38,9 +41,16 @@ pub fn start() {
         ffi::prompt_for_trust();
     }
 
-    let engine = Engine::new(opts);
-    let core = Arc::new(Mutex::new(EngineCore::new(engine)));
+    let mut engine = Engine::new(opts);
+    engine.set_macro_table(crate::settings::load_macros());
+
+    let mut core_state = EngineCore::new(engine);
+    core_state.smart_switch = crate::settings::load_smart_switch();
+    let core = Arc::new(Mutex::new(core_state));
+
     let config = Arc::new(SharedConfig::new(&opts));
+    settings.apply_to_shared_config(&config);
+
     let tap_control = Arc::new(tap::TapControl::new());
 
     // Prime the frontmost bundle-id cache on the main thread so the tap thread

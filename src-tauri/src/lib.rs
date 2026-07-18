@@ -1,4 +1,5 @@
 mod platform;
+mod settings;
 #[cfg(target_os = "macos")]
 mod state;
 
