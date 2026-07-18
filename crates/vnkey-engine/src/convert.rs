@@ -135,6 +135,9 @@ fn reencode(opts: &ConvertOptions, should_upper_case: bool, key: u32, k: usize) 
 
 /// `ConvertTool.cpp:51 convertUtil` -- re-encode `src` per `opts`.
 pub fn convert_util(src: &str, opts: &ConvertOptions) -> String {
+    // C++ `utf8ToWideString(str)` converts `str.c_str()`, so any embedded NUL
+    // truncates the input there. Mirror that before encoding.
+    let src = &src[..src.find('\0').unwrap_or(src.len())];
     let data: Vec<u16> = src.encode_utf16().collect();
     let n = data.len();
 
@@ -179,11 +182,16 @@ pub fn convert_util(src: &str, opts: &ConvertOptions) -> String {
             }
         }
 
-        // find primary keycode first (single unit).
+        // find primary keycode first (single unit). Note (mirror C++ quirk):
+        // this block ends in a bare `_temp.push_back(target)` -- it does NOT
+        // run the `to_code`-aware split `emit`, which only exists in the
+        // two-unit block above. So a char matched here (a string's last char,
+        // or one whose multi-byte lookahead failed) is emitted as the raw
+        // `target` code unit regardless of `to_code`.
         let t: u16 = data[i];
         if let Some((key, k)) = find_key_code(opts.from_code, t) {
             let target = reencode(opts, should_upper_case, key, k);
-            emit(&mut temp, opts.to_code, target);
+            temp.push(target);
             should_upper_case = false;
             has_break = false;
             i += 1;
@@ -279,6 +287,23 @@ mod tests {
             ..opts(CodeTable::Unicode, CodeTable::Unicode)
         };
         assert_eq!(convert_util("VIỆT nam", &o), "việt nam");
+    }
+
+    #[test]
+    fn surrogate_producing_conversion_does_not_panic() {
+        // A string ENDING in a char whose CP1258 cell lands in the UTF-16
+        // surrogate range (e.g. 'ã' -> 0xDE61) goes through the single-unit
+        // emit branch, which pushes the whole cell unsplit. The vendored C++
+        // crashes here (wstring_convert throws); we intentionally do NOT
+        // reproduce the crash -- `from_utf16` falls back to replacement chars.
+        // (Non-last such chars are fine: the two-unit branch splits them.)
+        let o = ConvertOptions {
+            from_code: CodeTable::Unicode,
+            to_code: CodeTable::Cp1258,
+            ..ConvertOptions::default()
+        };
+        let out = convert_util("ã", &o); // must not panic
+        assert!(!out.is_empty());
     }
 
     #[test]

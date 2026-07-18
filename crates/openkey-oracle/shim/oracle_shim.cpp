@@ -12,6 +12,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <exception>
 #include <vector>
 
 #include "../vendor/Engine.h"
@@ -267,7 +268,21 @@ uint32_t ok_convert_util(const char* src, uint32_t len, const OkConvertOpts* o,
     convertToolToAllNonCaps = o->to_all_non_caps != 0;
     convertToolToCapsFirstLetter = o->to_caps_first_letter != 0;
     convertToolToCapsEachWord = o->to_caps_each_word != 0;
-    std::string result = convertUtil(std::string(src, len));
+    // convertUtil rebuilds a wide-string via std::wstring_convert and can
+    // throw std::range_error ("to_bytes error") when its output buffer holds a
+    // lone UTF-16 surrogate. That happens for a genuine OpenKey crash bug: the
+    // single-unit emit branch push_back(target) (a string's last matched char)
+    // pushes a whole VNI/CP1258 2-byte cell unsplit, and some of those cells
+    // (0xD800..0xDFFF, e.g. CP1258 'ã' = 0xDE61) are surrogate values. We catch
+    // it and return the u32::MAX sentinel so the differential harness excludes
+    // the case (C++ UB/crash -> exclude, per the divergence rule) instead of
+    // letting the foreign exception abort the Rust test process.
+    std::string result;
+    try {
+        result = convertUtil(std::string(src, len));
+    } catch (const std::exception&) {
+        return 0xFFFFFFFFu; // sentinel: C++ convertUtil threw (crash bug)
+    }
     uint32_t total = static_cast<uint32_t>(result.size());
     uint32_t n = total < cap ? total : cap;
     if (out != nullptr && n > 0) {

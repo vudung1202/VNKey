@@ -293,7 +293,11 @@ impl OracleSession {
     }
 
     /// `convertUtil(src)` after setting the 7 `convertTool*` option globals.
-    pub fn convert_util(&mut self, src: &str, opts: &OkConvertOpts) -> Vec<u8> {
+    ///
+    /// Returns `None` when the C++ `convertUtil` threw (a `std::range_error`
+    /// from `wstring_convert` on a lone-surrogate output -- an OpenKey crash
+    /// bug the shim catches). Differential callers exclude those inputs.
+    pub fn convert_util(&mut self, src: &str, opts: &OkConvertOpts) -> Option<Vec<u8>> {
         let mut out = vec![0u8; src.len() * 8 + 16];
         let total = unsafe {
             ok_convert_util(
@@ -304,6 +308,9 @@ impl OracleSession {
                 out.len() as u32,
             )
         };
+        if total == u32::MAX {
+            return None; // C++ convertUtil threw
+        }
         // Grow and retry if the output didn't fit (defensive; the 8x + 16
         // headroom is generous for the widest table-to-table expansion).
         if total as usize > out.len() {
@@ -319,7 +326,7 @@ impl OracleSession {
             };
         }
         out.truncate(total as usize);
-        out
+        Some(out)
     }
 }
 

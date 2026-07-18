@@ -43,6 +43,9 @@ use crate::data::{CHAR_CODE_MASK, CodeTable, PURE_CHARACTER_MASK};
 ///   3. `t | PURE_CHARACTER_MASK` ("other" character passed through verbatim).
 pub(crate) fn convert(text: &str, code_table: CodeTable) -> Vec<u32> {
     let mut out = Vec::new();
+    // C++ `utf8ToWideString(str)` converts `str.c_str()`: an embedded NUL
+    // truncates the input there.
+    let text = &text[..text.find('\0').unwrap_or(text.len())];
     for unit in text.encode_utf16() {
         let t = unit as u32;
         if let Some(kc) = character_map_get(t) {
