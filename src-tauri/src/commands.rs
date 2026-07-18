@@ -78,6 +78,34 @@ pub(crate) fn apply_settings_core(
     settings
 }
 
+/// The state-mutation portion of [`apply_and_broadcast`], pulled out so it's
+/// testable without an `AppHandle` -- same injected-`save` shape as
+/// [`apply_settings_core`], plus an injected `on_disk` base instead of a
+/// hardcoded `Settings::load()`.
+///
+/// `on_disk` (the last-saved settings) is overlaid with the live
+/// hotkey/smart-switch state in `config`
+/// ([`crate::tray::overlay_live_config`]) *before* `mutate` runs. This is
+/// the Task 12 review fix: the hotkey (`hotkey::switch_language` /
+/// `tray::sync_after_live_change`) and smart-switch
+/// (`smart_switch::on_active_app`) paths flip only `SharedConfig`'s
+/// `enabled`/`code_table` atomics without saving, so `on_disk` can be stale.
+/// Seeding `mutate` from the overlay instead of `on_disk` directly means an
+/// unrelated menu/IPC change can never clobber a live change that hasn't
+/// been persisted yet -- and persisting the result (via `save`) also catches
+/// `settings.json` up to the live state as a side effect.
+pub(crate) fn apply_and_broadcast_core(
+    engine: &Mutex<EngineCore>,
+    config: &SharedConfig,
+    on_disk: Settings,
+    mutate: impl FnOnce(Settings) -> Settings,
+    save: impl FnOnce(&Settings) -> std::io::Result<()>,
+) -> Settings {
+    let seed = crate::tray::overlay_live_config(on_disk, config);
+    let settings = mutate(seed);
+    apply_settings_core(engine, config, settings, save)
+}
+
 /// The one path every config-changing command goes through: load the current
 /// settings, let `mutate` produce the new ones, apply + persist them, then
 /// update the tray and emit `status-changed`/`settings-changed` for the UI.
@@ -85,8 +113,7 @@ pub(crate) fn apply_and_broadcast(app: &AppHandle, mutate: impl FnOnce(Settings)
     let engine = app.state::<Arc<Mutex<EngineCore>>>();
     let config = app.state::<Arc<SharedConfig>>();
 
-    let settings = mutate(Settings::load());
-    let settings = apply_settings_core(&engine, &config, settings, |s| s.save());
+    let settings = apply_and_broadcast_core(&engine, &config, Settings::load(), mutate, |s| s.save());
 
     crate::tray::update_tray(app, settings);
     crate::events::status_changed(app, &settings);
@@ -290,9 +317,84 @@ pub fn quit_app(app: AppHandle) {
 mod tests {
     use std::cell::RefCell;
 
-    use vnkey_engine::{Engine, EngineOptions};
+    use vnkey_engine::{Engine, EngineOptions, InputType};
 
     use super::*;
+
+    /// Task 12 review regression: the hotkey path (`hotkey::switch_language`)
+    /// flips `SharedConfig::enabled` without saving, so `settings.json` stays
+    /// stale. Before the fix, `apply_and_broadcast_core` seeded `mutate`
+    /// straight from `on_disk` -- an unrelated change (here, setting the
+    /// input type) would resurrect the stale `language` and
+    /// `apply_settings_core`'s `apply_to_shared_config` would clobber the
+    /// live `enabled = false` back to `true`, silently reverting the user
+    /// back to Vietnamese. Fails on the pre-fix code; passes after seeding
+    /// from `tray::overlay_live_config(on_disk, config)` instead.
+    #[test]
+    fn apply_and_broadcast_core_preserves_live_hotkey_language_over_stale_on_disk_settings() {
+        let stale_on_disk = Settings::default();
+        assert_eq!(stale_on_disk.language, 1, "precondition: on-disk settings still say Vietnamese");
+
+        let engine = Mutex::new(EngineCore::new(Engine::new(stale_on_disk.to_engine_options())));
+        let config = SharedConfig::new(&stale_on_disk.to_engine_options());
+
+        // Hotkey path: flips only the atomic, never persists.
+        config.enabled.store(false, std::sync::atomic::Ordering::Relaxed); // now English
+
+        // An UNRELATED menu/IPC change.
+        let saved = RefCell::new(None);
+        let result = apply_and_broadcast_core(
+            &engine,
+            &config,
+            stale_on_disk,
+            |s| set_input_type_settings(s, InputType::SimpleTelex2 as u8),
+            |s| {
+                *saved.borrow_mut() = Some(*s);
+                Ok(())
+            },
+        );
+
+        assert_eq!(result.language, 0, "the unrelated change must not revert the live English state");
+        assert!(
+            !config.enabled.load(std::sync::atomic::Ordering::Relaxed),
+            "SharedConfig.enabled must stay false (English), not clobbered back to Vietnamese"
+        );
+        assert_eq!(
+            saved.into_inner().unwrap().language,
+            0,
+            "the persisted settings.json must also catch up to the live English state"
+        );
+    }
+
+    /// Same clobber, smart-switch flavor: `smart_switch::on_active_app`'s
+    /// remember-code branch flips only `SharedConfig::code_table` without
+    /// saving. Fails on the pre-fix code for the same reason as the hotkey
+    /// test above.
+    #[test]
+    fn apply_and_broadcast_core_preserves_live_smart_switch_code_table_over_stale_on_disk_settings() {
+        let stale_on_disk = Settings::default();
+        assert_eq!(stale_on_disk.code_table, CodeTable::Unicode as u8, "precondition: on-disk settings still say Unicode");
+
+        let engine = Mutex::new(EngineCore::new(Engine::new(stale_on_disk.to_engine_options())));
+        let config = SharedConfig::new(&stale_on_disk.to_engine_options());
+
+        // Smart-switch path: flips only the atomic, never persists.
+        config.set_code_table(CodeTable::VniWindows);
+
+        // An UNRELATED menu/IPC change.
+        let result = apply_and_broadcast_core(&engine, &config, stale_on_disk, |s| set_language_settings(s, 0), |_| Ok(()));
+
+        assert_eq!(
+            result.code_table,
+            CodeTable::VniWindows as u8,
+            "the unrelated change must not revert the live code table"
+        );
+        assert_eq!(
+            config.code_table(),
+            CodeTable::VniWindows,
+            "SharedConfig.code_table must stay VNI Windows, not clobbered back to Unicode"
+        );
+    }
 
     #[test]
     fn apply_settings_core_updates_engine_shared_config_and_saves() {

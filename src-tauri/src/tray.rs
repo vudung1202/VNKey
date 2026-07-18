@@ -134,8 +134,9 @@ pub(crate) fn live_settings(config: &SharedConfig) -> Settings {
 
 /// The pure half of [`live_settings`], split out so tests can supply a base
 /// [`Settings`] instead of going through the real, hardcoded-path
-/// `Settings::load`.
-fn overlay_live_config(mut settings: Settings, config: &SharedConfig) -> Settings {
+/// `Settings::load`. `pub(crate)` so [`crate::commands::apply_and_broadcast_core`]
+/// can also drive it off an injected base settings value (Task 12 review fix).
+pub(crate) fn overlay_live_config(mut settings: Settings, config: &SharedConfig) -> Settings {
     settings.language = if config.enabled.load(Ordering::Relaxed) { 1 } else { 0 };
     settings.code_table = config.code_table() as u8;
     settings
@@ -395,10 +396,19 @@ fn set_code_table(app: &AppHandle, code_table: u8) {
 /// Called from the hotkey path (tap thread, fire-and-forget) and the
 /// smart-switch observer (already on the main thread) to sync the tray +
 /// emit `status-changed` after a change that bypasses `apply_and_broadcast`.
+///
+/// Also persists the live state (Task 12 review fix): both callers are on
+/// the main thread by the time this runs (the hotkey path hops here via
+/// `notify_language_switched`'s `run_on_main_thread`; the smart-switch
+/// observer is already on it), so a plain `Settings::save` here is safe --
+/// no AppKit/disk I/O is added to the tap thread's callback. Without this, a
+/// manual language switch or smart-switch code-table change would be lost on
+/// restart unless a later menu/IPC action happened to save it first.
 pub(crate) fn sync_after_live_change(app: &AppHandle, config: &SharedConfig) {
     let settings = live_settings(config);
     apply_tray_state(app, &settings);
     crate::events::status_changed(app, &settings);
+    let _ = settings.save();
 }
 
 /// Fire-and-forget: post `sync_after_live_change` to the main thread and
