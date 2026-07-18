@@ -171,7 +171,7 @@ impl Default for Settings {
 /// `InputType::from(u8)` (no such helper exists on the engine's `InputType`,
 /// unlike `CodeTable::from_index`); out-of-range falls back to `Telex`,
 /// mirroring `CodeTable::from_index`'s None-on-corrupt-data convention.
-fn input_type_from_u8(value: u8) -> InputType {
+pub(crate) fn input_type_from_u8(value: u8) -> InputType {
     match value {
         0 => InputType::Telex,
         1 => InputType::Vni,
@@ -241,6 +241,23 @@ impl Settings {
             .store(self.use_smart_switch_key, Ordering::Relaxed);
         config.remember_code.store(self.remember_code, Ordering::Relaxed);
         config.set_code_table(CodeTable::from_index(self.code_table).unwrap_or(CodeTable::Unicode));
+    }
+
+    /// Convert the Convert-tool-group fields to the engine crate's
+    /// conversion options, for the "Chuyển mã nhanh" tray item / hotkey,
+    /// which converts the clipboard using whatever the user last configured
+    /// in the convert-tool window rather than caller-supplied options (that's
+    /// `commands::ConvertOptions`, the IPC-facing type).
+    pub fn convert_options(&self) -> vnkey_engine::ConvertOptions {
+        vnkey_engine::ConvertOptions {
+            from_code: CodeTable::from_index(self.convert_from_code).unwrap_or(CodeTable::Unicode),
+            to_code: CodeTable::from_index(self.convert_to_code).unwrap_or(CodeTable::Unicode),
+            remove_mark: self.convert_remove_mark,
+            to_all_caps: self.convert_to_all_caps,
+            to_all_non_caps: self.convert_to_all_non_caps,
+            to_caps_first_letter: self.convert_to_caps_first_letter,
+            to_caps_each_word: self.convert_to_caps_each_word,
+        }
     }
 }
 
@@ -447,6 +464,31 @@ mod tests {
     fn to_engine_options_out_of_range_code_table_falls_back_to_unicode() {
         let s = Settings { code_table: 99, ..Settings::default() };
         assert_eq!(s.to_engine_options().code_table, CodeTable::Unicode);
+    }
+
+    #[test]
+    fn convert_options_maps_convert_group_fields() {
+        let s = Settings {
+            convert_from_code: CodeTable::Tcvn3 as u8,
+            convert_to_code: CodeTable::VniWindows as u8,
+            convert_remove_mark: true,
+            convert_to_all_caps: true,
+            ..Settings::default()
+        };
+        let opts = s.convert_options();
+        assert_eq!(opts.from_code, CodeTable::Tcvn3);
+        assert_eq!(opts.to_code, CodeTable::VniWindows);
+        assert!(opts.remove_mark);
+        assert!(opts.to_all_caps);
+        assert!(!opts.to_all_non_caps);
+    }
+
+    #[test]
+    fn convert_options_out_of_range_code_table_falls_back_to_unicode() {
+        let s = Settings { convert_from_code: 99, convert_to_code: 99, ..Settings::default() };
+        let opts = s.convert_options();
+        assert_eq!(opts.from_code, CodeTable::Unicode);
+        assert_eq!(opts.to_code, CodeTable::Unicode);
     }
 
     #[cfg(target_os = "macos")]
