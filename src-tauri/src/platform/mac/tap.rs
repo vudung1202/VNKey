@@ -5,18 +5,24 @@
 //! blocks in `CFRunLoopRun`. The callback runs on this thread for every
 //! observed event. This keeps event handling off Tauri's main run loop.
 //!
-//! Callback pipeline (port of `OpenKeyCallback`, `OpenKey.mm:601-794`, reduced
-//! to what this task needs):
+//! Callback pipeline (port of `OpenKeyCallback`, `OpenKey.mm:601-794`):
 //!   0. re-enable the tap if it was disabled (the fix over OpenKey — OpenKey
 //!      never handles `kCGEventTapDisabledBy*`, so a slow callback silently
 //!      kills its own tap);
 //!   1. skip VNKey's own injected events (private source match);
-//!   2. mouse down/drag -> start a new word, pass through;
-//!   3. only KeyDown is transformed (KeyUp/FlagsChanged pass through — full
-//!      hotkey/FlagsChanged handling is Task 9);
-//!   4. engine off -> pass through;
-//!   5. run the engine under the lock, snapshot its decision, drop the lock;
-//!   6. inject (lock-free) and swallow/pass per the decision.
+//!   2. layout-compat keycode convert (`vPerformLayoutCompat`, KeyDown only —
+//!      `hotkey.rs`/`layout.rs`, `OpenKey.mm:614-617`);
+//!   3. hotkey detect: key-based switch hotkey on KeyDown, modifier-only
+//!      switch hotkey + temp-off chords on FlagsChanged (`hotkey.rs`,
+//!      `OpenKey.mm:618-661`);
+//!   4. mouse down/drag -> start a new word, pass through;
+//!   5. only KeyDown reaches the engine (KeyUp/FlagsChanged/other pass
+//!      through);
+//!   6. other-language passthrough (`vOtherLanguage`, `tis.rs`,
+//!      `OpenKey.mm:694-710`);
+//!   7. engine off -> pass through;
+//!   8. run the engine under the lock, snapshot its decision, drop the lock;
+//!   9. inject (lock-free) and swallow/pass per the decision.
 
 use core::ffi::c_void;
 use core::ptr::NonNull;
@@ -28,8 +34,9 @@ use objc2_core_graphics::{CGEvent, CGEventSource, CGEventTapProxy, CGEventType};
 use parking_lot::Mutex;
 use vnkey_engine::{CodeTable, KeyEvent, KeyEventState, is_double_code};
 
+use super::hotkey::HotkeyState;
 use super::inject::{self, CgSink, HookSnapshot, InjectCtx};
-use super::{ffi, quirks};
+use super::{ffi, hotkey, layout, quirks, tis};
 use crate::state::{EngineCore, SharedConfig};
 
 /// Shared, process-lifetime context handed to the C callback via a leaked
@@ -45,6 +52,10 @@ struct TapContext {
     /// The tap, stored after creation so the callback can re-enable it. Written
     /// once (before the run loop starts); read-only thereafter, single-threaded.
     tap: Option<CFRetained<objc2_core_foundation::CFMachPort>>,
+    /// `_lastFlag`/`_hasJustUsedHotKey` — release-edge state for the
+    /// language-switch hotkey and the temp-off chords. Mutated only here, on
+    /// the tap thread.
+    hotkey_state: HotkeyState,
 }
 
 /// Spawn the event-tap thread. Moves the shared state in; the thread lives for
@@ -77,6 +88,7 @@ fn run_tap_thread(
         source_state_id,
         code_table,
         tap: None,
+        hotkey_state: HotkeyState::new(),
     }));
 
     let mask = ffi::tap_event_mask();
@@ -110,7 +122,8 @@ unsafe extern "C-unwind" fn tap_callback(
 ) -> *mut CGEvent {
     // SAFETY: `refcon` is the `TapContext` leaked in `run_tap_thread`; it is
     // alive for the whole process and only ever dereferenced on this thread.
-    let ctx = unsafe { &*refcon.cast::<TapContext>() };
+    // `&mut`: `hotkey_state` is mutated below (single-threaded tap callback).
+    let ctx = unsafe { &mut *refcon.cast::<TapContext>() };
 
     // 0. Re-enable a tap the system disabled (fix over OpenKey).
     if ty == CGEventType::TapDisabledByTimeout || ty == CGEventType::TapDisabledByUserInput {
@@ -129,7 +142,53 @@ unsafe extern "C-unwind" fn tap_callback(
         return event.as_ptr();
     }
 
-    // 2. Mouse -> full session reset (fidelity to OpenKey), pass the click
+    // SAFETY: live event. Read once, up front, for every event type --
+    // `OpenKeyCallback` reads `_flag`/`_keycode` unconditionally before
+    // branching on type (`OpenKey.mm:609-612`).
+    let flags = unsafe { ffi::event_flags(event_ref) }.0;
+    // SAFETY: live event.
+    let mut keycode = unsafe { ffi::event_keycode(event_ref) };
+
+    // 2. Layout-compat keycode convert (`vPerformLayoutCompat`, KeyDown only,
+    // `OpenKey.mm:614-617`).
+    if ty == CGEventType::KeyDown && ctx.config.perform_layout_compat.load(Ordering::Relaxed) {
+        keycode = layout::convert_event_to_layout_compat_keycode(event_ref, keycode);
+    }
+
+    // 3. Hotkey detect: key-based switch hotkey on KeyDown, modifier-only
+    // switch hotkey + temp-off chords on FlagsChanged (`OpenKey.mm:618-661`).
+    let switch_hotkey = ctx.config.switch_key_status.load(Ordering::Relaxed);
+    if ty == CGEventType::KeyDown {
+        if ctx.hotkey_state.on_key_down(switch_hotkey, keycode) {
+            let mut core = ctx.engine.lock();
+            hotkey::switch_language(&ctx.config, &mut core.engine, switch_hotkey);
+            return core::ptr::null_mut();
+        }
+    } else if ty == CGEventType::FlagsChanged {
+        let action = ctx.hotkey_state.on_flags_changed(
+            switch_hotkey,
+            flags,
+            keycode,
+            ctx.config.temp_off_spelling.load(Ordering::Relaxed),
+            ctx.config.temp_off_openkey.load(Ordering::Relaxed),
+        );
+        if action.switch {
+            let mut core = ctx.engine.lock();
+            hotkey::switch_language(&ctx.config, &mut core.engine, switch_hotkey);
+            return core::ptr::null_mut();
+        }
+        if action.temp_off_spelling || action.temp_off_openkey {
+            let mut core = ctx.engine.lock();
+            if action.temp_off_spelling {
+                core.engine.temp_off_spell_checking();
+            }
+            if action.temp_off_openkey {
+                core.engine.temp_off_engine(true);
+            }
+        }
+    }
+
+    // 4. Mouse -> full session reset (fidelity to OpenKey), pass the click
     // through. OpenKey's `RequestNewSession()` (OpenKey.mm:147-154) does not
     // call `startNewSession` directly -- it drives
     // `vKeyHandleEvent(Mouse, MouseDown, 0)` and discards the returned
@@ -157,24 +216,25 @@ unsafe extern "C-unwind" fn tap_callback(
         return event.as_ptr();
     }
 
-    // 3. Only KeyDown is transformed.
+    // 5. Only KeyDown reaches the engine.
     if ty != CGEventType::KeyDown {
         return event.as_ptr();
     }
 
-    // 4. Engine off -> pass through.
+    // 6. Other-language passthrough (`vOtherLanguage`, `OpenKey.mm:694-710`).
+    if ctx.config.other_language.load(Ordering::Relaxed) && !tis::current_input_is_english() {
+        return event.as_ptr();
+    }
+
+    // 7. Engine off -> pass through.
     if !ctx.config.enabled.load(Ordering::Relaxed) {
         return event.as_ptr();
     }
 
-    // SAFETY: live keyboard event.
-    let flags = unsafe { ffi::event_flags(event_ref) }.0;
-    // SAFETY: live keyboard event.
-    let keycode = unsafe { ffi::event_keycode(event_ref) };
     let caps_status = quirks::caps_status_from_flags(flags);
     let other_control = quirks::other_control_from_flags(flags);
 
-    // 5. Engine under the lock; snapshot the decision; take `_syncKey` out so
+    // 8. Engine under the lock; snapshot the decision; take `_syncKey` out so
     // injection runs lock-free (posting events must not re-enter the engine
     // while the lock is held).
     let (snap, mut sync_key) = {
@@ -221,7 +281,7 @@ unsafe extern "C-unwind" fn tap_callback(
     };
     let result = inject::dispatch(&mut sink, &mut ictx, &snap);
 
-    // 6. Put `_syncKey` back; run any deferred start-new-session.
+    // 9. Put `_syncKey` back; run any deferred start-new-session.
     {
         let mut core = ctx.engine.lock();
         core.sync_key = sync_key;

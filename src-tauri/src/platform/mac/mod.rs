@@ -3,8 +3,11 @@
 
 mod ffi;
 mod inject;
+pub(crate) mod hotkey;
+mod layout;
 mod quirks;
 mod tap;
+mod tis;
 
 use std::sync::Arc;
 

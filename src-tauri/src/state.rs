@@ -8,9 +8,11 @@
 //! * [`SharedConfig`] — atomics the tap callback reads on the hot path without
 //!   locking (engine on/off + a couple of injection-quirk toggles).
 
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU32};
 
 use vnkey_engine::Engine;
+
+use crate::platform::mac::hotkey::DEFAULT_SWITCH_KEY_STATUS;
 
 /// Engine state guarded by the mutex.
 ///
@@ -50,6 +52,23 @@ pub struct SharedConfig {
     /// Chromium apps. Wiring of the actual Shift+Left branch is deferred (see
     /// `inject.rs`); the flag exists so the default (off) is explicit.
     pub fix_chromium_browser: AtomicBool,
+    /// `vSwitchKeyStatus` — the packed language-switch hotkey (see
+    /// `platform::mac::hotkey`). No settings UI yet (Task 13), so this starts
+    /// at OpenKey's default (⌥Z, `DEFAULT_SWITCH_KEY_STATUS`).
+    pub switch_key_status: AtomicU32,
+    /// `vTempOffSpelling` — releasing Control alone temporarily disables spell
+    /// checking for the in-progress word.
+    pub temp_off_spelling: AtomicBool,
+    /// `vTempOffOpenKey` — releasing Command alone temporarily disables the
+    /// whole engine for the in-progress word.
+    pub temp_off_openkey: AtomicBool,
+    /// `vOtherLanguage` — when on, pass every key through untouched while the
+    /// system's current keyboard input source isn't English.
+    pub other_language: AtomicBool,
+    /// `vPerformLayoutCompat` — translate physical keycodes through the
+    /// current (non-QWERTY) keyboard layout before handing them to the
+    /// engine. No settings UI yet (Task 13), so this starts off.
+    pub perform_layout_compat: AtomicBool,
 }
 
 impl SharedConfig {
@@ -59,6 +78,11 @@ impl SharedConfig {
             send_key_step_by_step: AtomicBool::new(false),
             fix_recommend_browser: AtomicBool::new(opts.fix_recommend_browser),
             fix_chromium_browser: AtomicBool::new(false),
+            switch_key_status: AtomicU32::new(DEFAULT_SWITCH_KEY_STATUS),
+            temp_off_spelling: AtomicBool::new(opts.temp_off_spelling),
+            temp_off_openkey: AtomicBool::new(opts.temp_off_openkey),
+            other_language: AtomicBool::new(opts.other_language),
+            perform_layout_compat: AtomicBool::new(false),
         }
     }
 }
