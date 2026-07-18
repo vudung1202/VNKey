@@ -23,8 +23,8 @@
 use crate::buffer::Buffer;
 use crate::charset::get_character_code;
 use crate::data::{
-    CAPS_MASK, HookCode, HookState, InputType, KeyEvent, KeyEventState, MARK1_MASK, MARK2_MASK,
-    MARK3_MASK, MARK4_MASK, MARK5_MASK, MARK_MASK, MAX_BUFF, STANDALONE_MASK, TONE_MASK,
+    CAPS_MASK, CodeTable, HookCode, HookState, InputType, KeyEvent, KeyEventState, MARK1_MASK,
+    MARK2_MASK, MARK3_MASK, MARK4_MASK, MARK5_MASK, MARK_MASK, MAX_BUFF, STANDALONE_MASK, TONE_MASK,
     TONEW_MASK,
 };
 use crate::input_method::{
@@ -140,6 +140,18 @@ impl Engine {
         }
         self.opts = opts;
         self.spell_check_on = opts.check_spelling;
+    }
+
+    /// Switch the active code table (host `onCodeTableChanged` ->
+    /// `OnTableCodeChange`). Re-encodes the macro table's content codes for
+    /// the new table (the same `onTableCodeChange` host call `set_options`
+    /// models) and updates the option. Used by the smart-switch remember-code
+    /// branch to restore a per-app code table.
+    pub fn set_code_table(&mut self, code_table: CodeTable) {
+        if self.opts.code_table != code_table {
+            self.macros.on_table_code_change(code_table);
+            self.opts.code_table = code_table;
+        }
     }
 
     /// Shared read access to the macro table (for the host/IPC to list

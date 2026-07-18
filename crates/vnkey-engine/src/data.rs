@@ -79,6 +79,22 @@ pub enum CodeTable {
     Cp1258 = 4,
 }
 
+impl CodeTable {
+    /// Map a 0-based `vCodeTable` index back to the enum (inverse of `as u8`).
+    /// Returns `None` for an out-of-range index, e.g. a corrupt smart-switch
+    /// packed value whose `codeTable` bits exceed the known tables.
+    pub fn from_index(index: u8) -> Option<CodeTable> {
+        match index {
+            0 => Some(CodeTable::Unicode),
+            1 => Some(CodeTable::Tcvn3),
+            2 => Some(CodeTable::VniWindows),
+            3 => Some(CodeTable::UnicodeCompound),
+            4 => Some(CodeTable::Cp1258),
+            _ => None,
+        }
+    }
+}
+
 /// `DataType.h: HoolCodeState`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HookCode {
