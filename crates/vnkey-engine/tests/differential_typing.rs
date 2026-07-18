@@ -537,3 +537,279 @@ proptest! {
         compare_sequence(opts, &seq)?;
     }
 }
+
+// -- Task 6: temp-off actions + english_mode + grand differential (M1 exit) -
+//
+// `differential_temp_off_actions` (Pass A) and `differential_grand` (Pass C)
+// both drive an `Action` sequence -- key presses interleaved with the three
+// temp-off session methods -- through `compare_actions`; they differ only in
+// their options strategy (Pass A: Unicode only, like the Task 5 general pass;
+// Pass C: all 5 code tables + free_mark, the "merge every generator" M1 exit
+// criterion). `differential_english_mode` (Pass B) is unrelated to the other
+// two -- it drives `Engine::english_mode`/`OracleSession::english_mode`
+// directly, not `handle_event` -- so it gets its own comparison function,
+// `compare_english_mode`.
+
+/// One step of a Task 6 action sequence (Pass A/C): either a normal key
+/// press, or one of the three temp-off session methods, applied identically
+/// to both engines mid-sequence (the oracle's `ok_temp_off_spell_checking`/
+/// `ok_set_check_spelling`/`ok_temp_off_engine`).
+#[derive(Debug, Clone, Copy)]
+enum Action {
+    Key(u16, u8),
+    TempOffSpelling,
+    ResetCheckSpelling,
+    TempOffEngine(bool),
+}
+
+/// Wraps `key` with the three temp-off actions injected at low probability:
+/// ~85% of steps are a normal key press drawn from `key`, ~15% a temp-off
+/// action (spread across the 4 variants).
+fn temp_off_action_strategy(
+    key: impl Strategy<Value = (u16, u8)> + 'static,
+) -> impl Strategy<Value = Action> {
+    prop_oneof![
+        85 => key.prop_map(|(k, c)| Action::Key(k, c)),
+        5 => Just(Action::TempOffSpelling),
+        5 => Just(Action::ResetCheckSpelling),
+        3 => Just(Action::TempOffEngine(true)),
+        2 => Just(Action::TempOffEngine(false)),
+    ]
+}
+
+/// Action sequences (1-45 steps, same length range as `general_seq_strategy`)
+/// built over `general_key_strategy` -- letters/brackets/digits/SPACE/DELETE/
+/// break keys -- interleaved with temp-off actions.
+fn temp_off_seq_strategy() -> impl Strategy<Value = Vec<Action>> {
+    prop::collection::vec(temp_off_action_strategy(general_key_strategy()), 1..=45)
+}
+
+/// `general_options_strategy` plus `temp_off_spelling`/`temp_off_openkey`
+/// sampled in `{false, true}` (Task 6 Pass A/C): the two options the
+/// temp-off session actions interact with (`use_spell_checking_before`/
+/// `will_temp_off_engine`). Macro/smart-switch stay off, matching every
+/// other strategy in this file.
+fn temp_off_options_strategy(code_table: CodeTable) -> impl Strategy<Value = EngineOptions> {
+    (general_options_strategy(code_table), any::<bool>(), any::<bool>()).prop_map(
+        |(mut o, temp_off_spelling, temp_off_openkey)| {
+            o.temp_off_spelling = temp_off_spelling;
+            o.temp_off_openkey = temp_off_openkey;
+            o
+        },
+    )
+}
+
+/// Run `seq` through both engines, applying every `Action` identically, and
+/// assert the per-key HookState matches on each `Action::Key` step exactly
+/// like `compare_sequence` (see its comments for the `ncc > MAX_BUFF` and
+/// `debug_char_data_may_be_cpp_oob` rationale, which apply unchanged here).
+/// The three temp-off actions carry no `HookState` of their own to compare --
+/// they only need to be applied identically so later `Action::Key` steps see
+/// matching engine state.
+fn compare_actions(opts: EngineOptions, seq: &[Action]) -> Result<(), TestCaseError> {
+    let ok_opts = to_ok_options(&opts);
+    let mut session = Oracle::lock(&ok_opts);
+    let mut engine = Engine::new(opts);
+
+    for (step, action) in seq.iter().enumerate() {
+        match *action {
+            Action::TempOffSpelling => {
+                engine.temp_off_spell_checking();
+                session.temp_off_spell_checking();
+            }
+            Action::ResetCheckSpelling => {
+                engine.reset_check_spelling();
+                session.set_check_spelling();
+            }
+            Action::TempOffEngine(off) => {
+                engine.temp_off_engine(off);
+                session.temp_off_engine(off);
+            }
+            Action::Key(keycode, caps) => {
+                let hs = engine.handle_event(
+                    KeyEvent::Keyboard,
+                    KeyEventState::KeyDown,
+                    keycode,
+                    caps,
+                    false,
+                );
+                let rust_code = hs.code as u8;
+                let bpc = hs.backspace_count;
+                let ncc = hs.new_char_count;
+                let ext_code = hs.ext_code;
+                let char_data = hs.char_data;
+                let macro_key_len = hs.macro_key.len();
+
+                session.handle_event(0 /*Keyboard*/, 0 /*KeyDown*/, keycode, caps, 0);
+                let st = session.get_state();
+
+                prop_assert_eq!(
+                    (rust_code, bpc, ncc, ext_code),
+                    (st.code, st.backspace_count, st.new_char_count, st.ext_code),
+                    "header mismatch at step {} (keycode={}, caps={}) opts={:?}\n  seq={:?}",
+                    step, keycode, caps, opts, seq
+                );
+
+                // Same OOB rationale as `compare_sequence` -- see its comments.
+                let n = (ncc as usize).min(MAX_BUFF);
+                if !engine.debug_char_data_may_be_cpp_oob() {
+                    prop_assert_eq!(
+                        &char_data[..n],
+                        &st.char_data[..n],
+                        "char_data mismatch at step {} (keycode={}, caps={}) opts={:?}\n  seq={:?}",
+                        step, keycode, caps, opts, seq
+                    );
+                }
+
+                prop_assert_eq!(
+                    macro_key_len,
+                    st.macro_key_len as usize,
+                    "macro_key length mismatch at step {} (keycode={}, caps={}) opts={:?}\n  seq={:?}",
+                    step, keycode, caps, opts, seq
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+proptest! {
+    #![proptest_config(config(2000))]
+
+    /// Task 6 Pass A: `general_key_strategy` sequences with the temp-off
+    /// session actions (`temp_off_spell_checking`/`reset_check_spelling`/
+    /// `temp_off_engine`) interleaved and applied identically to both
+    /// engines, over the Unicode code table with `temp_off_spelling`/
+    /// `temp_off_openkey` sampled alongside the existing option axes.
+    #[test]
+    fn differential_temp_off_actions(
+        opts in temp_off_options_strategy(CodeTable::Unicode),
+        seq in temp_off_seq_strategy(),
+    ) {
+        compare_actions(opts, &seq)?;
+    }
+}
+
+/// Options for the `english_mode` pass (Task 6 Pass B): `language = 0`
+/// (English mode -- what a real host sets before calling `english_mode`
+/// instead of `handle_event`, even though the ported method itself never
+/// reads `opts.language`; see `Engine::english_mode`'s doc comment).
+/// `use_macro` stays false like every other strategy in this file (Task 7
+/// macro lookup is a stub); no other option affects `english_mode`'s
+/// behavior -- it doesn't consult `EngineOptions` at all beyond that -- so a
+/// single fixed value suffices instead of a sampled strategy.
+fn english_mode_options() -> EngineOptions {
+    let mut o = EngineOptions { language: 0, ..EngineOptions::default() };
+    o.use_macro = false;
+    o
+}
+
+/// Run `seq` through both engines' `english_mode` and assert the HookState
+/// matches on every field the host would consume, plus `macro_key` length.
+/// `english_mode` never sets `backspace_count`/`new_char_count`/`ext_code`
+/// (the C++ `vEnglishMode`'s `ReplaceMacro` branch, the only place that would
+/// touch them, is unreachable -- `find_macro` is the Task 7 stub, always a
+/// miss), so those three fields never move off their `HookState::default()`
+/// zero here -- comparing them is a cheap invariant check, not exercising new
+/// logic. Unlike `compare_sequence`/`compare_actions`, there is no
+/// `char_data`/OOB concern: `vEnglishMode` never writes `charData` at all.
+fn compare_english_mode(opts: EngineOptions, seq: &[(u16, u8)]) -> Result<(), TestCaseError> {
+    let ok_opts = to_ok_options(&opts);
+    let mut session = Oracle::lock(&ok_opts);
+    let mut engine = Engine::new(opts);
+
+    for (step, &(keycode, caps)) in seq.iter().enumerate() {
+        let is_caps = caps == 1 || caps == 2;
+        let hs = engine.english_mode(KeyEventState::KeyDown, keycode, is_caps, false);
+        let rust_code = hs.code as u8;
+        let bpc = hs.backspace_count;
+        let ncc = hs.new_char_count;
+        let ext_code = hs.ext_code;
+        let char_data = hs.char_data;
+        let macro_key_len = hs.macro_key.len();
+
+        session.english_mode(0 /*KeyDown*/, keycode, caps, 0);
+        let st = session.get_state();
+
+        prop_assert_eq!(
+            (rust_code, bpc, ncc, ext_code),
+            (st.code, st.backspace_count, st.new_char_count, st.ext_code),
+            "english_mode header mismatch at step {} (keycode={}, caps={}) seq={:?}",
+            step, keycode, caps, seq
+        );
+
+        let n = (ncc as usize).min(MAX_BUFF);
+        prop_assert_eq!(
+            &char_data[..n],
+            &st.char_data[..n],
+            "english_mode char_data mismatch at step {} (keycode={}, caps={}) seq={:?}",
+            step, keycode, caps, seq
+        );
+
+        prop_assert_eq!(
+            macro_key_len,
+            st.macro_key_len as usize,
+            "english_mode macro_key length mismatch at step {} (keycode={}, caps={}) seq={:?}",
+            step, keycode, caps, seq
+        );
+    }
+    Ok(())
+}
+
+proptest! {
+    #![proptest_config(config(2000))]
+
+    /// Task 6 Pass B: `language=0`, random letter/digit/SPACE/DELETE/break
+    /// key sequences (`general_seq_strategy`, reused as-is -- "random key
+    /// sequences" per the brief) through `english_mode` on both engines.
+    #[test]
+    fn differential_english_mode(seq in general_seq_strategy()) {
+        compare_english_mode(english_mode_options(), &seq)?;
+    }
+}
+
+/// Options for the grand differential (Task 6 Pass C, the M1 exit
+/// criterion): `temp_off_options_strategy` (every Task 4/5/6 boolean/enum
+/// axis, incl. `temp_off_spelling`/`temp_off_openkey`) plus `free_mark`
+/// sampled too, with the code table drawn from all 5 instead of a single
+/// fixed table. `fix_recommend_browser`/`remember_code`/`other_language`/
+/// `use_macro_in_english_mode`/`auto_caps_macro` are never read by
+/// `Engine.cpp`'s `vKeyHandleEvent`/`vEnglishMode` (host-app-only options --
+/// confirmed by grep over `vendor/Engine.cpp`: `vFreeMark` is the only one of
+/// the six referenced there), so sampling them would add noise without
+/// differential value; they stay at `EngineOptions::default()`.
+/// `use_macro`/`use_smart_switch_key` stay off per the brief.
+fn grand_options_strategy() -> impl Strategy<Value = EngineOptions> {
+    (0usize..5, any::<bool>()).prop_flat_map(|(idx, free_mark)| {
+        let table = [
+            CodeTable::Unicode,
+            CodeTable::Tcvn3,
+            CodeTable::VniWindows,
+            CodeTable::UnicodeCompound,
+            CodeTable::Cp1258,
+        ][idx];
+        temp_off_options_strategy(table).prop_map(move |mut o| {
+            o.free_mark = free_mark;
+            o
+        })
+    })
+}
+
+proptest! {
+    #![proptest_config(config(5000))]
+
+    /// Task 6 Pass C -- grand differential, the M1 exit criterion: merges
+    /// every generator built up through Task 4/5/6 (normal-key,
+    /// break/SPACE/DELETE, digits, VNI [via `input_type` sampling], temp-off
+    /// actions) over all 5 code tables and every boolean option except
+    /// macro/smart-switch. Run once at a much higher `PROPTEST_CASES` before
+    /// closing out Task 6 (see task-6-report.md for the case count / 0
+    /// divergences run at that scale).
+    #[test]
+    fn differential_grand(
+        opts in grand_options_strategy(),
+        seq in temp_off_seq_strategy(),
+    ) {
+        compare_actions(opts, &seq)?;
+    }
+}
