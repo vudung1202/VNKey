@@ -91,6 +91,42 @@ unsafe extern "C" {
     fn ok_key_code_to_character(key_code: u32) -> u32;
     fn ok_set_macro_blob(data: *const u8, len: u32);
     fn ok_get_macro_blob(out: *mut u8, cap: u32) -> u32;
+    fn ok_add_macro(text: *const u8, tlen: u32, content: *const u8, clen: u32);
+    fn ok_macro_on_table_change(code_table: i32);
+    fn ok_find_macro(
+        key: *const u32,
+        key_len: u32,
+        code_table: i32,
+        auto_caps: i32,
+        out: *mut u32,
+        cap: u32,
+    ) -> u32;
+    fn ok_smart_set_blob(data: *const u8, len: u32);
+    fn ok_smart_get_blob(out: *mut u8, cap: u32) -> u32;
+    fn ok_smart_get(bundle: *const u8, len: u32, current: i32) -> i32;
+    fn ok_smart_set(bundle: *const u8, len: u32, language: i32);
+    fn ok_convert_util(
+        src: *const u8,
+        len: u32,
+        opts: *const OkConvertOpts,
+        out: *mut u8,
+        cap: u32,
+    ) -> u32;
+}
+
+/// Mirrors the C `OkConvertOpts` struct in `shim/oracle_shim.cpp`: the 7
+/// `convertTool*` globals that affect `convertUtil` (the two host-only knobs
+/// `convertToolHotKey`/`convertToolDontAlertWhenCompleted` are omitted).
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct OkConvertOpts {
+    pub from_code: i32,
+    pub to_code: i32,
+    pub remove_mark: i32,
+    pub to_all_caps: i32,
+    pub to_all_non_caps: i32,
+    pub to_caps_first_letter: i32,
+    pub to_caps_each_word: i32,
 }
 
 /// Process-wide lock serializing all access to the C++ engine's global
@@ -190,6 +226,100 @@ impl OracleSession {
         let len = unsafe { ok_get_macro_blob(buf.as_mut_ptr(), cap_u32) };
         buf.truncate((len as usize).min(cap));
         buf
+    }
+
+    /// `addMacro(text, content)` under the current `vCodeTable`.
+    pub fn add_macro(&mut self, text: &str, content: &str) {
+        unsafe {
+            ok_add_macro(
+                text.as_ptr(),
+                text.len() as u32,
+                content.as_ptr(),
+                content.len() as u32,
+            )
+        }
+    }
+
+    /// `vCodeTable = code_table; onTableCodeChange()`.
+    pub fn macro_on_table_change(&mut self, code_table: i32) {
+        unsafe { ok_macro_on_table_change(code_table) }
+    }
+
+    /// `findMacro(key, out)` under `vCodeTable = code_table` /
+    /// `vAutoCapsMacro = auto_caps`. Returns `Some(content_codes)` on a match
+    /// (possibly empty), `None` on a miss.
+    pub fn find_macro(&mut self, key: &[u32], code_table: i32, auto_caps: bool) -> Option<Vec<u32>> {
+        let mut out = vec![0u32; 1024];
+        let total = unsafe {
+            ok_find_macro(
+                key.as_ptr(),
+                key.len() as u32,
+                code_table,
+                auto_caps as i32,
+                out.as_mut_ptr(),
+                out.len() as u32,
+            )
+        };
+        if total == 0xFFFF_FFFF {
+            return None;
+        }
+        out.truncate((total as usize).min(out.len()));
+        Some(out)
+    }
+
+    /// `initSmartSwitchKey` with a serialized smart-switch blob.
+    pub fn set_smart_blob(&mut self, data: &[u8]) {
+        unsafe { ok_smart_set_blob(data.as_ptr(), data.len() as u32) }
+    }
+
+    /// `getSmartSwitchKeySaveData`. Returns the serialized blob, truncated to
+    /// `cap` bytes if it doesn't fit.
+    pub fn get_smart_blob(&self, cap: usize) -> Vec<u8> {
+        let mut buf = vec![0u8; cap];
+        let cap_u32 = u32::try_from(cap).unwrap_or(u32::MAX);
+        let len = unsafe { ok_smart_get_blob(buf.as_mut_ptr(), cap_u32) };
+        buf.truncate((len as usize).min(cap));
+        buf
+    }
+
+    /// `getAppInputMethodStatus(bundle_id, current)`.
+    pub fn smart_get(&mut self, bundle_id: &str, current: i32) -> i32 {
+        unsafe { ok_smart_get(bundle_id.as_ptr(), bundle_id.len() as u32, current) }
+    }
+
+    /// `setAppInputMethodStatus(bundle_id, language)`.
+    pub fn smart_set(&mut self, bundle_id: &str, language: i32) {
+        unsafe { ok_smart_set(bundle_id.as_ptr(), bundle_id.len() as u32, language) }
+    }
+
+    /// `convertUtil(src)` after setting the 7 `convertTool*` option globals.
+    pub fn convert_util(&mut self, src: &str, opts: &OkConvertOpts) -> Vec<u8> {
+        let mut out = vec![0u8; src.len() * 8 + 16];
+        let total = unsafe {
+            ok_convert_util(
+                src.as_ptr(),
+                src.len() as u32,
+                opts,
+                out.as_mut_ptr(),
+                out.len() as u32,
+            )
+        };
+        // Grow and retry if the output didn't fit (defensive; the 8x + 16
+        // headroom is generous for the widest table-to-table expansion).
+        if total as usize > out.len() {
+            out = vec![0u8; total as usize];
+            unsafe {
+                ok_convert_util(
+                    src.as_ptr(),
+                    src.len() as u32,
+                    opts,
+                    out.as_mut_ptr(),
+                    out.len() as u32,
+                )
+            };
+        }
+        out.truncate(total as usize);
+        out
     }
 }
 

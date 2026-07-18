@@ -71,3 +71,17 @@ void setAppInputMethodStatus(const string& bundleId, const int& language) {
     _cacheKey = bundleId;
     _cacheData = language;
 }
+
+#ifdef VNKEY_ORACLE
+// VNKEY-ORACLE-PATCH: differential-test-only reset of the 1-entry read cache.
+// initSmartSwitchKey() clears the map but NOT _cacheKey/_cacheData, so a stale
+// cache would leak across locked oracle sessions and diverge from a freshly
+// constructed Rust SmartSwitchTable (whose cache starts empty). Called from
+// ok_reset in shim/oracle_shim.cpp; the statics are private to this file, so
+// the reset must live here. Compiled only when VNKEY_ORACLE is defined (set by
+// the oracle build.rs).
+void vnkeyOracleResetSmartSwitchCache() {
+    _cacheKey = "";
+    _cacheData = 0;
+}
+#endif
