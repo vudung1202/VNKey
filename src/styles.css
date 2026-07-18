@@ -34,10 +34,17 @@ body {
   font-size: 13px;
 }
 
-.control-panel {
+.control-panel,
+.window {
   display: flex;
   flex-direction: column;
   height: 100vh;
+}
+
+.window {
+  padding: 12px;
+  gap: 10px;
+  overflow-y: auto;
 }
 
 .top-bar {
@@ -142,6 +149,67 @@ body {
 .about-tab .version {
   color: var(--text-secondary);
   margin-top: -4px;
+}
+
+.macro-editor .macro-table-wrap {
+  flex: 1;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.macro-editor table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.macro-editor th,
+.macro-editor td {
+  text-align: left;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.macro-editor th {
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+}
+
+.macro-editor tbody tr {
+  cursor: pointer;
+}
+
+.macro-editor tbody tr.selected {
+  background: var(--accent);
+  color: #fff;
+}
+
+.macro-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.macro-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.macro-form textarea {
+  font: inherit;
+  color: inherit;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 3px 8px;
+  resize: vertical;
+}
+
+.macro-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .footer {

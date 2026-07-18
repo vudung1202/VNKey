@@ -69,7 +69,11 @@ export function macroExport(path: string): Promise<void> {
   return invoke("macro_export", { path });
 }
 
-export function convertClipboard(options: ConvertOptions): Promise<void> {
+// Resolves to whether a conversion actually happened (the clipboard had
+// something to convert) -- see `commands.rs: convert_clipboard`'s doc
+// comment. The caller uses this to pick between the two OpenKey alert
+// messages ("converted" vs. "clipboard was empty").
+export function convertClipboard(options: ConvertOptions): Promise<boolean> {
   return invoke("convert_clipboard", { options });
 }
 

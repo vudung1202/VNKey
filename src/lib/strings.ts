@@ -78,4 +78,52 @@ export const strings = {
     yes: "Có",
     no: "Không",
   },
+
+  // `MacroViewController.mm` + the macro scene in `Main.storyboard`.
+  macroEditor: {
+    keyColumn: "Từ gõ tắt",
+    contentColumn: "Nội dung đầy đủ",
+    add: "Thêm",
+    edit: "Sửa",
+    delete: "Xoá",
+    importFile: "Nạp từ file...",
+    exportFile: "Xuất ra file...",
+    addNeedsBothFields: "Bạn hãy nhập từ cần gõ tắt!",
+    deleteNeedsSelection: "Bạn hãy chọn từ cần xoá!",
+    importDialogTitle: "Dữ liệu gõ tắt",
+    importKeepDataQuestion: "Bạn có muốn giữ lại các dữ liệu hiện tại không?",
+    alertTitle: "Gõ tắt",
+  },
+
+  // `ConvertToolViewController.mm` + the convert-tool scene in `Main.storyboard`.
+  convertTool: {
+    generalOptions: "Tùy chọn chung",
+    toAllCaps: "Chuyển sang chữ HOA",
+    toAllNonCaps: "Chuyển sang chữ thường",
+    toCapsFirstLetter: "Đặt chữ Hoa đầu câu",
+    toCapsEachWord: "Đặt chữ Hoa Sau Mỗi Từ",
+    removeMark: "Loại bỏ dấu câu",
+    notifyWhenDone: "Thông báo khi chuyển xong",
+    options: "Lựa chọn",
+    fromCode: "Bảng mã nguồn",
+    toCode: "Bảng mã đích",
+    reverse: "⇄",
+    quickHotkey: "Phím chuyển mã nhanh:",
+    clipboardCheckbox: "Chuyển mã trong Clipboard",
+    convert: "Chuyển mã",
+    close: "Đóng",
+    successTitle: "Chuyển mã thành công!",
+    successSub: "Kết quả đã được lưu trong clipboard.",
+    failTitle: "Không có dữ liệu trong clipboard!",
+    failSub: "Hãy sao chép một đoạn text để chuyển đổi!",
+  },
+
+  // `AboutViewController.m` + the about scene in `Main.storyboard`; reuses
+  // `aboutTab`'s appName/description/credit/sourceCodeUrl (same content).
+  about: {
+    homePage: "Trang chủ",
+    sourceCode: "Mã nguồn...",
+    checkUpdateOnStartup: "Kiểm tra bản mới khi khởi động",
+    close: "Đóng",
+  },
 };
