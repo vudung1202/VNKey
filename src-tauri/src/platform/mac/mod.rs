@@ -6,8 +6,10 @@ mod inject;
 pub(crate) mod hotkey;
 mod layout;
 mod quirks;
+mod smart_switch;
 mod tap;
 mod tis;
+mod workspace;
 
 use std::sync::Arc;
 
@@ -39,6 +41,16 @@ pub fn start() {
     let engine = Engine::new(opts);
     let core = Arc::new(Mutex::new(EngineCore::new(engine)));
     let config = Arc::new(SharedConfig::new(&opts));
+    let tap_control = Arc::new(tap::TapControl::new());
 
-    tap::spawn(core, config, opts.code_table);
+    // Prime the frontmost bundle-id cache on the main thread so the tap thread
+    // has a value before the first activation notification (and never calls
+    // NSWorkspace itself — Task 8 finding 3).
+    config.set_frontmost_bundle_id(ffi::frontmost_bundle_id());
+
+    // Register NSWorkspace lifecycle observers on the main thread (AppKit
+    // requirement). This runs inside Tauri's `setup`, on the main run loop.
+    workspace::register(core.clone(), config.clone(), tap_control.clone());
+
+    tap::spawn(core, config, tap_control);
 }

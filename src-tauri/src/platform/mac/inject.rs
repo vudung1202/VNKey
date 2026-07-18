@@ -23,7 +23,7 @@ use vnkey_engine::{
     key_code_to_character,
 };
 
-use super::quirks::AppQuirks;
+use super::quirks::{AppQuirks, resolve_quirks};
 
 /// `Vietnamese.cpp:494 _unicodeCompoundMark` — combining sac/huyen/hoi/nga/nang
 /// used to decode the packed Unicode Compound cells. Duplicated here (small,
@@ -108,13 +108,14 @@ pub struct InjectCtx<'a> {
     pub code_table: CodeTable,
     /// OpenKey's `_syncKey` stack (owned by the tap thread).
     pub sync_key: &'a mut Vec<u8>,
-    /// Resolves per-app quirks (`resolve_quirks`/`frontmost_bundle_id` — an
-    /// NSWorkspace round-trip + String allocation). Not every dispatch branch
-    /// needs quirks (a plain `DoNothing` key never does), so this is a
-    /// resolver rather than a resolved value: [`InjectCtx::quirks`] calls it
-    /// at most once per keystroke, only when a branch that actually reads
-    /// quirks is reached, and caches the result in `quirks_cache`.
-    pub quirks_fn: fn() -> AppQuirks,
+    /// Frontmost app bundle id, read from the shared cache the main-thread
+    /// NSWorkspace observer maintains (`workspace.rs`) — the tap thread never
+    /// calls `NSWorkspace` itself (closes Task 8 finding 3). Not every dispatch
+    /// branch needs quirks (a plain `DoNothing` key never does), so quirks are
+    /// resolved lazily: [`InjectCtx::quirks`] runs `resolve_quirks` at most once
+    /// per keystroke, only when a branch that reads quirks is reached, and
+    /// caches the result in `quirks_cache`.
+    pub bundle_id: Option<&'a str>,
     pub quirks_cache: Option<AppQuirks>,
     pub fix_recommend_browser: bool,
     pub fix_chromium_browser: bool,
@@ -125,13 +126,14 @@ pub struct InjectCtx<'a> {
 }
 
 impl InjectCtx<'_> {
-    /// Per-app quirks for the frontmost app, resolved via `quirks_fn` on first
-    /// access and cached for the rest of this dispatch call.
+    /// Per-app quirks for the frontmost app, resolved from the cached
+    /// `bundle_id` on first access and cached for the rest of this dispatch
+    /// call.
     fn quirks(&mut self) -> AppQuirks {
         if let Some(q) = self.quirks_cache {
             return q;
         }
-        let q = (self.quirks_fn)();
+        let q = resolve_quirks(self.bundle_id);
         self.quirks_cache = Some(q);
         q
     }
@@ -597,7 +599,7 @@ mod tests {
         InjectCtx {
             code_table,
             sync_key,
-            quirks_fn: || AppQuirks::default(),
+            bundle_id: None,
             quirks_cache: None,
             fix_recommend_browser: false,
             fix_chromium_browser: false,
@@ -884,7 +886,7 @@ mod tests {
     fn empty_character_uses_nice_space_for_sublime() {
         let mut sk = Vec::new();
         let mut c = ctx(CodeTable::Unicode, &mut sk);
-        c.quirks_fn = || super::super::quirks::resolve_quirks(Some("com.sublimetext.3"));
+        c.bundle_id = Some("com.sublimetext.3");
         let mut sink = MockSink::default();
         send_empty_character(&mut sink, &mut c);
         assert_eq!(sink.ops, vec![SinkOp::Unicode(vec![0x200C])]);

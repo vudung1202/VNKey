@@ -18,9 +18,13 @@
 //!   4. mouse down/drag -> start a new word, pass through;
 //!   5. only KeyDown reaches the engine (KeyUp/FlagsChanged/other pass
 //!      through);
-//!   6. other-language passthrough (`vOtherLanguage`, `tis.rs`,
+//!   6. engine off (`vLanguage == 0`) -> pass through. This runs BEFORE the
+//!      other-language TIS check so English mode never pays a
+//!      `TISCopyCurrentKeyboardInputSource` per key (folds Task 9's
+//!      callback-reorder review; OpenKey early-returns on `vLanguage == 0` at
+//!      `OpenKey.mm:672/684` before the other-language block at `:693`);
+//!   7. other-language passthrough (`vOtherLanguage`, `tis.rs`,
 //!      `OpenKey.mm:694-710`);
-//!   7. engine off -> pass through;
 //!   8. run the engine under the lock, snapshot its decision, drop the lock;
 //!   9. inject (lock-free) and swallow/pass per the decision.
 
@@ -29,15 +33,65 @@ use core::ptr::NonNull;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use objc2_core_foundation::CFRetained;
+use objc2_core_foundation::{CFMachPort, CFRetained};
 use objc2_core_graphics::{CGEvent, CGEventSource, CGEventTapProxy, CGEventType};
 use parking_lot::Mutex;
-use vnkey_engine::{CodeTable, KeyEvent, KeyEventState, is_double_code};
+use vnkey_engine::{KeyEvent, KeyEventState};
 
 use super::hotkey::HotkeyState;
 use super::inject::{self, CgSink, HookSnapshot, InjectCtx};
-use super::{ffi, hotkey, layout, quirks, tis};
+use super::{ffi, hotkey, layout, quirks, smart_switch, tis};
 use crate::state::{EngineCore, SharedConfig};
+
+/// Cross-thread handle to the tap's mach port, so the main-thread sleep/wake
+/// observer can disable the tap while the machine sleeps and re-enable it on
+/// wake (the enable-toggle lifecycle; see the module-level note below and the
+/// Task 10 report). The tap thread installs the port once, after creating the
+/// tap; the observer only ever calls [`set_enabled`](TapControl::set_enabled).
+pub struct TapControl {
+    port: Mutex<Option<SharedTapPort>>,
+}
+
+/// Wraps the tap's `CFMachPort` so it can be moved to / shared with the
+/// main-thread observer.
+///
+/// `objc2` marks `CFMachPort` `!Send`/`!Sync` (its conservative default). The
+/// wrapper is `Send`/`Sync` because the ONLY cross-thread operation performed
+/// on the port is `CGEventTapEnable` (via [`ffi::set_tap_enabled`]), which
+/// flips the tap's enabled bit through a mach message; it does not mutate the
+/// `CFMachPort`'s user-space object, and CF retain/release (the only refcount
+/// ops) are atomic. The port stays retained for the whole process by the tap
+/// thread's leaked `TapContext`, so the reference can never dangle. Toggling a
+/// tap from a thread other than the one servicing its run loop is an accepted
+/// CoreGraphics pattern — OpenKey itself calls `CGEventTapEnable`/`stopEventTap`
+/// from the main thread while the callback runs on its run loop.
+struct SharedTapPort(CFRetained<CFMachPort>);
+
+// SAFETY: see the type-level comment on `SharedTapPort`.
+unsafe impl Send for SharedTapPort {}
+// SAFETY: see the type-level comment on `SharedTapPort`.
+unsafe impl Sync for SharedTapPort {}
+
+impl TapControl {
+    pub fn new() -> Self {
+        Self {
+            port: Mutex::new(None),
+        }
+    }
+
+    /// Store the port after the tap thread has created it.
+    fn install(&self, port: CFRetained<CFMachPort>) {
+        *self.port.lock() = Some(SharedTapPort(port));
+    }
+
+    /// Enable or disable the tap from the sleep/wake observer. A no-op until
+    /// the tap thread has installed the port (or if tap creation failed).
+    pub fn set_enabled(&self, enabled: bool) {
+        if let Some(port) = self.port.lock().as_ref() {
+            ffi::set_tap_enabled(&port.0, enabled);
+        }
+    }
+}
 
 /// Shared, process-lifetime context handed to the C callback via a leaked
 /// `*mut c_void`. Created and mutated only on the tap thread.
@@ -48,7 +102,6 @@ struct TapContext {
     /// own injected events.
     source: CFRetained<CGEventSource>,
     source_state_id: i64,
-    code_table: CodeTable,
     /// The tap, stored after creation so the callback can re-enable it. Written
     /// once (before the run loop starts); read-only thereafter, single-threaded.
     tap: Option<CFRetained<objc2_core_foundation::CFMachPort>>,
@@ -59,18 +112,23 @@ struct TapContext {
 }
 
 /// Spawn the event-tap thread. Moves the shared state in; the thread lives for
-/// the whole process.
-pub fn spawn(engine: Arc<Mutex<EngineCore>>, config: Arc<SharedConfig>, code_table: CodeTable) {
+/// the whole process. `tap_control` receives the tap's mach port once created,
+/// so the sleep/wake observer can toggle it.
+pub fn spawn(
+    engine: Arc<Mutex<EngineCore>>,
+    config: Arc<SharedConfig>,
+    tap_control: Arc<TapControl>,
+) {
     std::thread::Builder::new()
         .name("vnkey-event-tap".into())
-        .spawn(move || run_tap_thread(engine, config, code_table))
+        .spawn(move || run_tap_thread(engine, config, tap_control))
         .expect("VNKey: failed to spawn event-tap thread");
 }
 
 fn run_tap_thread(
     engine: Arc<Mutex<EngineCore>>,
     config: Arc<SharedConfig>,
-    code_table: CodeTable,
+    tap_control: Arc<TapControl>,
 ) {
     let Some(source) = ffi::create_private_source() else {
         eprintln!("VNKey: failed to create private event source");
@@ -86,7 +144,6 @@ fn run_tap_thread(
         config,
         source,
         source_state_id,
-        code_table,
         tap: None,
         hotkey_state: HotkeyState::new(),
     }));
@@ -102,6 +159,11 @@ fn run_tap_thread(
         );
         return;
     };
+
+    // Share the port with the sleep/wake observer (a retained clone; CF
+    // retain/release is atomic). The tap thread keeps its own reference in the
+    // context below for the callback's timeout re-enable.
+    tap_control.install(tap.clone());
 
     // Store the tap so the callback can re-enable it after a timeout.
     // SAFETY: single-threaded; nothing else references the context yet.
@@ -162,6 +224,9 @@ unsafe extern "C-unwind" fn tap_callback(
         if ctx.hotkey_state.on_key_down(switch_hotkey, keycode) {
             let mut core = ctx.engine.lock();
             hotkey::switch_language(&ctx.config, &mut core.engine, switch_hotkey);
+            // Remember the user's choice for the frontmost app (OpenKey
+            // `OnInputMethodChanged`).
+            smart_switch::record_manual_switch(&mut core, &ctx.config);
             return core::ptr::null_mut();
         }
     } else if ty == CGEventType::FlagsChanged {
@@ -175,6 +240,7 @@ unsafe extern "C-unwind" fn tap_callback(
         if action.switch {
             let mut core = ctx.engine.lock();
             hotkey::switch_language(&ctx.config, &mut core.engine, switch_hotkey);
+            smart_switch::record_manual_switch(&mut core, &ctx.config);
             return core::ptr::null_mut();
         }
         if action.temp_off_spelling || action.temp_off_openkey {
@@ -188,31 +254,22 @@ unsafe extern "C-unwind" fn tap_callback(
         }
     }
 
-    // 4. Mouse -> full session reset (fidelity to OpenKey), pass the click
-    // through. OpenKey's `RequestNewSession()` (OpenKey.mm:147-154) does not
-    // call `startNewSession` directly -- it drives
-    // `vKeyHandleEvent(Mouse, MouseDown, 0)` and discards the returned
-    // `HookState`. A Mouse event always takes the break/word-break path
-    // (`isWordBreak` is unconditionally true for `KeyEvent::Mouse`), which
-    // additionally clears `special_char` and `typing_states`
-    // (Engine.cpp:1379-1382) on top of everything `start_new_session()`
-    // resets -- caches `start_new_session()` alone leaves stale (stale word
-    // history can mis-transform a later DELETE across the click boundary).
-    // Reproduce that by driving the same event through the engine, ignoring
-    // its `HookState` like OpenKey does, instead of calling
-    // `start_new_session()` directly.
+    // The active code table (`vCodeTable`) can change at runtime via
+    // smart-switch, so read the current value from shared state each keystroke
+    // rather than caching it on the tap thread.
+    let code_table = ctx.config.code_table();
+
+    // 4. Mouse -> full session reset (OpenKey `RequestNewSession()`,
+    // OpenKey.mm:147-154). See `EngineCore::request_new_session` for why this
+    // drives a Mouse event through the engine (and ignores the `HookState`)
+    // rather than calling `start_new_session()` directly. Pass the click
+    // through.
     if ty == CGEventType::LeftMouseDown
         || ty == CGEventType::RightMouseDown
         || ty == CGEventType::LeftMouseDragged
         || ty == CGEventType::RightMouseDragged
     {
-        let mut core = ctx.engine.lock();
-        let _ = core
-            .engine
-            .handle_event(KeyEvent::Mouse, KeyEventState::MouseDown, 0, 0, false);
-        if is_double_code(ctx.code_table) {
-            core.sync_key.clear();
-        }
+        ctx.engine.lock().request_new_session(code_table);
         return event.as_ptr();
     }
 
@@ -221,13 +278,17 @@ unsafe extern "C-unwind" fn tap_callback(
         return event.as_ptr();
     }
 
-    // 6. Other-language passthrough (`vOtherLanguage`, `OpenKey.mm:694-710`).
-    if ctx.config.other_language.load(Ordering::Relaxed) && !tis::current_input_is_english() {
+    // 6. Engine off (`vLanguage == 0`) -> pass through. Checked BEFORE the
+    // other-language TIS query so English mode never pays a
+    // `TISCopyCurrentKeyboardInputSource` per key (Task 9 review fold; OpenKey
+    // early-returns on `vLanguage == 0` at OpenKey.mm:672/684, ahead of the
+    // other-language block at :693).
+    if !ctx.config.enabled.load(Ordering::Relaxed) {
         return event.as_ptr();
     }
 
-    // 7. Engine off -> pass through.
-    if !ctx.config.enabled.load(Ordering::Relaxed) {
+    // 7. Other-language passthrough (`vOtherLanguage`, `OpenKey.mm:694-710`).
+    if ctx.config.other_language.load(Ordering::Relaxed) && !tis::current_input_is_english() {
         return event.as_ptr();
     }
 
@@ -261,18 +322,17 @@ unsafe extern "C-unwind" fn tap_callback(
         (snap, sk)
     };
 
+    // Read the frontmost bundle id from the cache the main-thread NSWorkspace
+    // observer maintains -- the tap thread no longer calls NSWorkspace itself
+    // (closes Task 8 finding 3). `InjectCtx::quirks` resolves this to
+    // `AppQuirks` lazily, only when a dispatch branch that reads quirks runs.
+    let bundle_id = ctx.config.frontmost_bundle_id();
+
     let mut sink = CgSink::new(&ctx.source, proxy);
     let mut ictx = InjectCtx {
-        code_table: ctx.code_table,
+        code_table,
         sync_key: &mut sync_key,
-        // Per-app quirks need an NSWorkspace round-trip + String allocation
-        // (`frontmost_bundle_id`), but only the WillProcess/Restore/
-        // RestoreAndStartNewSession/ReplaceMacro branches (and the rare
-        // 2-byte Unicode-Compound DoNothing-delete case) ever read them -- a
-        // plain DoNothing key never does. Pass a resolver instead of
-        // resolving eagerly here; `InjectCtx::quirks` calls it lazily, at
-        // most once for this keystroke.
-        quirks_fn: || quirks::resolve_quirks(ffi::frontmost_bundle_id().as_deref()),
+        bundle_id: bundle_id.as_deref(),
         quirks_cache: None,
         fix_recommend_browser: ctx.config.fix_recommend_browser.load(Ordering::Relaxed),
         fix_chromium_browser: ctx.config.fix_chromium_browser.load(Ordering::Relaxed),

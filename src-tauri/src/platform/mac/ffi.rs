@@ -157,7 +157,14 @@ pub unsafe fn create_tap(
 
 /// (Re-)enable a tap. Called at startup and after `kCGEventTapDisabledBy*`.
 pub fn enable_tap(tap: &CFMachPort) {
-    CGEvent::tap_enable(tap, true);
+    set_tap_enabled(tap, true);
+}
+
+/// Enable or disable a tap (`CGEventTapEnable`). Used by the sleep/wake
+/// observer to pause interception while the machine is asleep and resume it on
+/// wake.
+pub fn set_tap_enabled(tap: &CFMachPort, enabled: bool) {
+    CGEvent::tap_enable(tap, enabled);
 }
 
 /// Attach `tap`'s mach port to the current thread's run loop and block on it.
@@ -179,10 +186,26 @@ pub fn run_tap_loop(tap: &CFMachPort) -> bool {
 
 /// The frontmost application's bundle identifier (OpenKey's `queryFrontMostApp`
 /// / `FRONT_APP`), used for per-app injection quirks.
+///
+/// MUST be called on the main thread (AppKit). Task 10 moved every caller onto
+/// the main-thread NSWorkspace observer (`workspace.rs`); the tap thread now
+/// reads the cached value from [`SharedConfig`](crate::state::SharedConfig)
+/// instead (closes Task 8 finding 3).
 pub fn frontmost_bundle_id() -> Option<String> {
     use objc2_app_kit::NSWorkspace;
     let ws = NSWorkspace::sharedWorkspace();
     let app = ws.frontmostApplication()?;
+    let bid = app.bundleIdentifier()?;
+    Some(bid.to_string())
+}
+
+/// This process's own bundle identifier (OpenKey's `OPENKEY_BUNDLE`). The
+/// activation observer skips smart-switch when VNKey itself becomes frontmost,
+/// so opening the settings window does not overwrite the target app's cached
+/// language (mirrors `queryFrontMostApp`'s `!= OPENKEY_BUNDLE` guard).
+pub fn own_bundle_id() -> Option<String> {
+    use objc2_app_kit::NSRunningApplication;
+    let app = NSRunningApplication::currentApplication();
     let bid = app.bundleIdentifier()?;
     Some(bid.to_string())
 }

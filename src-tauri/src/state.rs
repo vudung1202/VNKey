@@ -8,9 +8,10 @@
 //! * [`SharedConfig`] — atomics the tap callback reads on the hot path without
 //!   locking (engine on/off + a couple of injection-quirk toggles).
 
-use std::sync::atomic::{AtomicBool, AtomicU32};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
 
-use vnkey_engine::Engine;
+use parking_lot::Mutex;
+use vnkey_engine::{CodeTable, Engine, KeyEvent, KeyEventState, SmartSwitchTable, is_double_code};
 
 use crate::platform::mac::hotkey::DEFAULT_SWITCH_KEY_STATUS;
 
@@ -25,6 +26,12 @@ use crate::platform::mac::hotkey::DEFAULT_SWITCH_KEY_STATUS;
 pub struct EngineCore {
     pub engine: Engine,
     pub sync_key: Vec<u8>,
+    /// Per-app (bundle-id) input-language memory (`SmartSwitchKey.cpp`). Lives
+    /// under the engine lock because both the main-thread NSWorkspace observer
+    /// (on app activation) and the tap thread (on a manual language switch)
+    /// mutate it. In-memory only this task; Task 11 loads/saves the on-disk
+    /// blob via [`SmartSwitchTable::from_blob`]/`to_blob` through this field.
+    pub smart_switch: SmartSwitchTable,
 }
 
 impl EngineCore {
@@ -32,6 +39,21 @@ impl EngineCore {
         Self {
             engine,
             sync_key: Vec::new(),
+            smart_switch: SmartSwitchTable::new(),
+        }
+    }
+
+    /// OpenKey `RequestNewSession()` (`OpenKey.mm:147-154`): drive a
+    /// `Mouse`/`MouseDown` through the engine (the unconditional word-break
+    /// path, which also clears `special_char`/`typing_states`) and, for the
+    /// 2-byte code tables, clear the `_syncKey` stack. Used by the tap thread's
+    /// mouse branch and by the active-space-change observer.
+    pub fn request_new_session(&mut self, code_table: CodeTable) {
+        let _ = self
+            .engine
+            .handle_event(KeyEvent::Mouse, KeyEventState::MouseDown, 0, 0, false);
+        if is_double_code(code_table) {
+            self.sync_key.clear();
         }
     }
 }
@@ -69,6 +91,22 @@ pub struct SharedConfig {
     /// current (non-QWERTY) keyboard layout before handing them to the
     /// engine. No settings UI yet (Task 13), so this starts off.
     pub perform_layout_compat: AtomicBool,
+    /// `vUseSmartSwitchKey` — restore the per-app language/code table on app
+    /// activation and remember it on a manual switch.
+    pub use_smart_switch_key: AtomicBool,
+    /// `vRememberCode` — smart-switch also restores/remembers the code table,
+    /// not just the language.
+    pub remember_code: AtomicBool,
+    /// `vCodeTable` — the active code table, as its enum discriminant. Lives
+    /// here (not only in the engine, whose options are private, and not as a
+    /// fixed tap-thread field) so the main-thread smart-switch observer can
+    /// change it and the tap thread reads the current value each keystroke.
+    code_table: AtomicU8,
+    /// Frontmost app bundle id, cached by the main-thread NSWorkspace observer
+    /// (`workspace.rs`). The tap thread reads it for per-app injection quirks
+    /// instead of calling `NSWorkspace.frontmostApplication` off-thread — this
+    /// closes Task 8 finding 3. `None` until the first activation notification.
+    frontmost_bundle_id: Mutex<Option<String>>,
 }
 
 impl SharedConfig {
@@ -83,6 +121,76 @@ impl SharedConfig {
             temp_off_openkey: AtomicBool::new(opts.temp_off_openkey),
             other_language: AtomicBool::new(opts.other_language),
             perform_layout_compat: AtomicBool::new(false),
+            use_smart_switch_key: AtomicBool::new(opts.use_smart_switch_key),
+            remember_code: AtomicBool::new(opts.remember_code),
+            code_table: AtomicU8::new(opts.code_table as u8),
+            frontmost_bundle_id: Mutex::new(None),
         }
+    }
+
+    /// The active code table (`vCodeTable`).
+    pub fn code_table(&self) -> CodeTable {
+        CodeTable::from_index(self.code_table.load(Ordering::Relaxed)).unwrap_or(CodeTable::Unicode)
+    }
+
+    /// Set the active code table (smart-switch remember-code branch).
+    pub fn set_code_table(&self, code_table: CodeTable) {
+        self.code_table.store(code_table as u8, Ordering::Relaxed);
+    }
+
+    /// The cached frontmost bundle id (a clone of the string the observer
+    /// stored). `None` before the first app-activation notification.
+    pub fn frontmost_bundle_id(&self) -> Option<String> {
+        self.frontmost_bundle_id.lock().clone()
+    }
+
+    /// Cache the frontmost bundle id (called by the main-thread observer).
+    pub fn set_frontmost_bundle_id(&self, bundle_id: Option<String>) {
+        *self.frontmost_bundle_id.lock() = bundle_id;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vnkey_engine::EngineOptions;
+
+    #[test]
+    fn bundle_id_cache_round_trips() {
+        // Models the main-thread observer writing and the tap thread reading.
+        let config = SharedConfig::new(&EngineOptions::default());
+        assert_eq!(config.frontmost_bundle_id(), None);
+
+        config.set_frontmost_bundle_id(Some("com.apple.TextEdit".into()));
+        assert_eq!(
+            config.frontmost_bundle_id().as_deref(),
+            Some("com.apple.TextEdit")
+        );
+
+        config.set_frontmost_bundle_id(Some("com.google.Chrome".into()));
+        assert_eq!(config.frontmost_bundle_id().as_deref(), Some("com.google.Chrome"));
+
+        config.set_frontmost_bundle_id(None);
+        assert_eq!(config.frontmost_bundle_id(), None);
+    }
+
+    #[test]
+    fn code_table_defaults_from_options_and_updates() {
+        let config = SharedConfig::new(&EngineOptions::default());
+        assert_eq!(config.code_table(), CodeTable::Unicode);
+
+        config.set_code_table(CodeTable::Cp1258);
+        assert_eq!(config.code_table(), CodeTable::Cp1258);
+
+        config.set_code_table(CodeTable::VniWindows);
+        assert_eq!(config.code_table(), CodeTable::VniWindows);
+    }
+
+    #[test]
+    fn smart_switch_flags_track_options() {
+        let config = SharedConfig::new(&EngineOptions::default());
+        // OpenKey defaults: both on.
+        assert!(config.use_smart_switch_key.load(Ordering::Relaxed));
+        assert!(config.remember_code.load(Ordering::Relaxed));
     }
 }
