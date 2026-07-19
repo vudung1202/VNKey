@@ -306,6 +306,17 @@ pub fn import_openkey_settings(app: AppHandle) -> Result<Settings, String> {
     Ok(settings)
 }
 
+/// Task 15: whether `settings.json` existed before this process's launch
+/// (`state::FirstRun`, captured in `lib.rs`'s `setup`). The UI ANDs this with
+/// `has_openkey_data()` to decide whether to offer the first-run OpenKey
+/// import, and only ever does so once per install -- every later launch sees
+/// `settings.json` already on disk (either the user's own settings, or the
+/// defaults `Settings::load()` persisted on this very first run).
+#[tauri::command]
+pub fn is_first_run(app: AppHandle) -> bool {
+    app.state::<crate::state::FirstRun>().0
+}
+
 /// No release feed is wired up yet -- there's no known GitHub (or other)
 /// releases URL for this project. Stubbed rather than guessing one.
 #[tauri::command]

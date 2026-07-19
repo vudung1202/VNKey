@@ -270,6 +270,15 @@ fn settings_path() -> PathBuf {
     config_dir().join("settings.json")
 }
 
+/// Whether `settings.json` exists on disk *right now*. `lib.rs`'s `setup`
+/// calls this before `Settings::load()` (which auto-creates the file with
+/// defaults on a missing/corrupt read -- see `load_from` below) to capture
+/// a "first run" signal: the simplest possible one, per the task 15 brief,
+/// since the file existing at all means some previous launch already ran.
+pub(crate) fn settings_file_exists() -> bool {
+    settings_path().exists()
+}
+
 fn macros_path() -> PathBuf {
     config_dir().join("macros.bin")
 }
