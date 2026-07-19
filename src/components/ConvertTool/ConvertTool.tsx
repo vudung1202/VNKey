@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { message } from "@tauri-apps/plugin-dialog";
 
+import { CheckboxRow } from "../CheckboxRow";
 import { HotkeyRecorder } from "../HotkeyRecorder";
 import { decodeHotkey, encodeHotkey } from "../../lib/hotkey";
 import { convertClipboard, getSettings, patchSettings, setConvertHotkey } from "../../lib/ipc";
@@ -82,42 +83,36 @@ export function ConvertTool() {
       <fieldset className="group-box">
         <legend>{strings.convertTool.generalOptions}</legend>
         <div className="checkbox-grid">
-          <label className="checkbox-row">
-            <input type="checkbox" checked={settings.convert_to_all_caps} onChange={(e) => toggleCaps("convert_to_all_caps", e.target.checked)} />
-            <span>{strings.convertTool.toAllCaps}</span>
-          </label>
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={settings.convert_to_all_non_caps}
-              onChange={(e) => toggleCaps("convert_to_all_non_caps", e.target.checked)}
-            />
-            <span>{strings.convertTool.toAllNonCaps}</span>
-          </label>
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={settings.convert_to_caps_first_letter}
-              onChange={(e) => toggleCaps("convert_to_caps_first_letter", e.target.checked)}
-            />
-            <span>{strings.convertTool.toCapsFirstLetter}</span>
-          </label>
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={settings.convert_to_caps_each_word}
-              onChange={(e) => toggleCaps("convert_to_caps_each_word", e.target.checked)}
-            />
-            <span>{strings.convertTool.toCapsEachWord}</span>
-          </label>
-          <label className="checkbox-row">
-            <input type="checkbox" checked={settings.convert_remove_mark} onChange={(e) => patch({ convert_remove_mark: e.target.checked })} />
-            <span>{strings.convertTool.removeMark}</span>
-          </label>
-          <label className="checkbox-row">
-            <input type="checkbox" checked={!settings.convert_dont_alert} onChange={(e) => patch({ convert_dont_alert: !e.target.checked })} />
-            <span>{strings.convertTool.notifyWhenDone}</span>
-          </label>
+          <CheckboxRow
+            label={strings.convertTool.toAllCaps}
+            checked={settings.convert_to_all_caps}
+            onChange={(checked) => toggleCaps("convert_to_all_caps", checked)}
+          />
+          <CheckboxRow
+            label={strings.convertTool.toAllNonCaps}
+            checked={settings.convert_to_all_non_caps}
+            onChange={(checked) => toggleCaps("convert_to_all_non_caps", checked)}
+          />
+          <CheckboxRow
+            label={strings.convertTool.toCapsFirstLetter}
+            checked={settings.convert_to_caps_first_letter}
+            onChange={(checked) => toggleCaps("convert_to_caps_first_letter", checked)}
+          />
+          <CheckboxRow
+            label={strings.convertTool.toCapsEachWord}
+            checked={settings.convert_to_caps_each_word}
+            onChange={(checked) => toggleCaps("convert_to_caps_each_word", checked)}
+          />
+          <CheckboxRow
+            label={strings.convertTool.removeMark}
+            checked={settings.convert_remove_mark}
+            onChange={(checked) => patch({ convert_remove_mark: checked })}
+          />
+          <CheckboxRow
+            label={strings.convertTool.notifyWhenDone}
+            checked={!settings.convert_dont_alert}
+            onChange={(checked) => patch({ convert_dont_alert: !checked })}
+          />
         </div>
       </fieldset>
 
@@ -164,10 +159,7 @@ export function ConvertTool() {
           <HotkeyRecorder char={hotkey.char} onChange={(keycode, char) => updateHotkey({ keycode, char })} />
         </span>
 
-        <label className="checkbox-row disabled-checkbox">
-          <input type="checkbox" checked readOnly disabled />
-          <span>{strings.convertTool.clipboardCheckbox}</span>
-        </label>
+        <CheckboxRow label={strings.convertTool.clipboardCheckbox} checked disabled onChange={() => {}} />
       </fieldset>
 
       <div className="window-actions">

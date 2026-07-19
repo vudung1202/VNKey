@@ -53,7 +53,7 @@ export function About() {
 
       <div className="about-links">
         <button onClick={() => void openUrl(strings.aboutTab.sourceCodeUrl)}>{strings.about.homePage}</button>
-        <button onClick={() => void openUrl(strings.aboutTab.sourceCodeUrl)}>{strings.about.sourceCode}</button>
+        <button onClick={() => void openUrl(strings.aboutTab.sourceCodeUrl)}>{strings.aboutTab.sourceCode}</button>
       </div>
 
       <CheckboxRow
