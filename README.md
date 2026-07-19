@@ -94,7 +94,7 @@ thành công).
 **Build bản release** (tối ưu, dùng để phân phối):
 
 ```sh
-npx tauri build --release
+npx tauri build
 ```
 
 Artifact: `target/release/bundle/macos/VNKey.app` và
