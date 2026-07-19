@@ -112,6 +112,8 @@ export const strings = {
     fromCode: "Bảng mã nguồn",
     toCode: "Bảng mã đích",
     reverse: "⇄",
+    // Accessible name for the ⇄ button (not shown; the glyph alone has no name).
+    reverseAria: "Đảo bảng mã nguồn và đích",
     quickHotkey: "Phím chuyển mã nhanh:",
     clipboardCheckbox: "Chuyển mã trong Clipboard",
     convert: "Chuyển mã",

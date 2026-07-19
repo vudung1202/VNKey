@@ -71,8 +71,9 @@ export function MacroEditor() {
     setPendingImport(path);
   }
 
-  // Confirm = keep existing data (append), cancel/Esc = replace, mirroring
-  // OpenKey's keep-data confirm where dismissing means "don't keep".
+  // Confirm ("Có") = keep existing data (append); the explicit "Không" =
+  // replace. Dismissing (Esc / backdrop click) aborts the import entirely
+  // rather than silently replacing, since replace wipes all current macros.
   async function resolveImport(keep: boolean) {
     const path = pendingImport;
     setPendingImport(null);
@@ -150,6 +151,7 @@ export function MacroEditor() {
         cancelLabel={strings.footer.no}
         onConfirm={() => void resolveImport(true)}
         onCancel={() => void resolveImport(false)}
+        onDismiss={() => setPendingImport(null)}
       />
       <ToastHost />
     </div>

@@ -1,11 +1,16 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 import { Button } from "./Button";
 
 /**
- * In-app replacement for the native `confirm()` dialog. Controlled via `open`;
- * Esc and backdrop click both cancel. Focus lands on the confirm button so
- * keyboard users can Enter/Escape immediately.
+ * In-app replacement for the native `confirm()` dialog. Controlled via `open`.
+ *
+ * Three exits, deliberately distinct: the confirm button (`onConfirm`), the
+ * explicit cancel button (`onCancel`), and dismissal via Esc or a backdrop
+ * click (`onDismiss`, falling back to `onCancel`). Splitting dismissal out
+ * matters when "cancel" is itself a real, possibly destructive choice (e.g.
+ * macro import's replace): a stray backdrop click should abort, not run it.
+ * Focus is trapped to the two buttons and lands on confirm.
  */
 export function ConfirmDialog({
   open,
@@ -16,6 +21,7 @@ export function ConfirmDialog({
   danger,
   onConfirm,
   onCancel,
+  onDismiss,
 }: {
   open: boolean;
   title?: string;
@@ -25,21 +31,46 @@ export function ConfirmDialog({
   danger?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
+  onDismiss?: () => void;
 }) {
+  const modalRef = useRef<HTMLDivElement>(null);
+  const dismiss = onDismiss ?? onCancel;
+
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onCancel();
+      if (e.key === "Escape") {
+        dismiss();
+        return;
+      }
+      if (e.key === "Tab") {
+        const focusables = modalRef.current?.querySelectorAll<HTMLElement>("button:not([disabled])");
+        if (!focusables || focusables.length === 0) return;
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        const active = document.activeElement;
+        if (active && !modalRef.current?.contains(active)) {
+          e.preventDefault();
+          first.focus();
+        } else if (e.shiftKey && active === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && active === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onCancel]);
+  }, [open, dismiss]);
 
   if (!open) return null;
 
   return (
-    <div className="ui-modal-backdrop" onMouseDown={onCancel}>
+    <div className="ui-modal-backdrop" onMouseDown={dismiss}>
       <div
+        ref={modalRef}
         className="ui-modal"
         role="dialog"
         aria-modal="true"

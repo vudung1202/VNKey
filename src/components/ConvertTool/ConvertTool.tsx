@@ -126,7 +126,7 @@ export function ConvertTool() {
                 ))}
               </Select>
             </label>
-            <Button variant="secondary" aria-label="Đảo bảng mã nguồn và đích" onClick={handleReverse}>
+            <Button variant="secondary" aria-label={strings.convertTool.reverseAria} onClick={handleReverse}>
               {strings.convertTool.reverse}
             </Button>
             <label className="field-label">
