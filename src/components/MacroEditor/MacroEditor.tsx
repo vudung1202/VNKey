@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { confirm, message, open, save } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 
-import { CheckboxRow } from "../CheckboxRow";
+import { Button, ConfirmDialog, SettingRow, ToastHost, showToast } from "../ui";
 import { getSettings, macroAdd, macroDelete, macroExport, macroImport, macroList, patchSettings } from "../../lib/ipc";
 import { strings } from "../../lib/strings";
 import type { MacroEntry, Settings } from "../../lib/types";
@@ -20,6 +20,9 @@ export function MacroEditor() {
   const [macros, setMacros] = useState<MacroEntry[]>([]);
   const [text, setText] = useState("");
   const [content, setContent] = useState("");
+  // Path chosen in the native file picker, awaiting the in-app keep/replace
+  // choice before the actual import fires.
+  const [pendingImport, setPendingImport] = useState<string | null>(null);
 
   useEffect(() => {
     getSettings().then(setSettings);
@@ -44,7 +47,7 @@ export function MacroEditor() {
 
   async function handleAddOrEdit() {
     if (text === "" || content === "") {
-      await message(strings.macroEditor.addNeedsBothFields, { title: strings.macroEditor.alertTitle, kind: "error" });
+      showToast({ kind: "error", title: strings.macroEditor.alertTitle, sub: strings.macroEditor.addNeedsBothFields });
       return;
     }
     await macroAdd(text, content);
@@ -54,7 +57,7 @@ export function MacroEditor() {
 
   async function handleDelete() {
     if (text === "") {
-      await message(strings.macroEditor.deleteNeedsSelection, { title: strings.macroEditor.alertTitle, kind: "error" });
+      showToast({ kind: "error", title: strings.macroEditor.alertTitle, sub: strings.macroEditor.deleteNeedsSelection });
       return;
     }
     await macroDelete(text);
@@ -65,13 +68,15 @@ export function MacroEditor() {
   async function handleImport() {
     const path = await open({ filters: [{ name: "Text", extensions: ["txt"] }] });
     if (!path || Array.isArray(path)) return;
+    setPendingImport(path);
+  }
 
-    const append = await confirm(strings.macroEditor.importKeepDataQuestion, {
-      title: strings.macroEditor.importDialogTitle,
-      okLabel: strings.footer.yes,
-      cancelLabel: strings.footer.no,
-    });
-    await macroImport(path, append);
+  // Confirm = keep existing data (append), cancel/Esc = replace, mirroring
+  // OpenKey's keep-data confirm where dismissing means "don't keep".
+  async function resolveImport(keep: boolean) {
+    const path = pendingImport;
+    setPendingImport(null);
+    if (path) await macroImport(path, keep);
   }
 
   async function handleExport() {
@@ -104,28 +109,49 @@ export function MacroEditor() {
       </div>
 
       <div className="macro-form">
-        <label>
+        <label className="field-label">
           {strings.macroEditor.keyColumn}
-          <input type="text" value={text} onChange={(e) => setText(e.target.value)} />
+          <input className="ui-input" type="text" value={text} onChange={(e) => setText(e.target.value)} />
         </label>
-        <label>
+        <label className="field-label">
           {strings.macroEditor.contentColumn}
-          <textarea rows={3} value={content} onChange={(e) => setContent(e.target.value)} />
+          <textarea className="ui-textarea" rows={3} value={content} onChange={(e) => setContent(e.target.value)} />
         </label>
       </div>
 
       <div className="macro-actions">
-        <button onClick={() => void handleAddOrEdit()}>{isEdit ? strings.macroEditor.edit : strings.macroEditor.add}</button>
-        <button onClick={() => void handleDelete()}>{strings.macroEditor.delete}</button>
-        <button onClick={() => void handleImport()}>{strings.macroEditor.importFile}</button>
-        <button onClick={() => void handleExport()}>{strings.macroEditor.exportFile}</button>
+        <Button variant="primary" onClick={() => void handleAddOrEdit()}>
+          {isEdit ? strings.macroEditor.edit : strings.macroEditor.add}
+        </Button>
+        <Button variant="danger" onClick={() => void handleDelete()}>
+          {strings.macroEditor.delete}
+        </Button>
+        <Button variant="secondary" onClick={() => void handleImport()}>
+          {strings.macroEditor.importFile}
+        </Button>
+        <Button variant="secondary" onClick={() => void handleExport()}>
+          {strings.macroEditor.exportFile}
+        </Button>
       </div>
 
-      <CheckboxRow
-        label={strings.macroTab.autoCapsMacro}
-        checked={settings.auto_caps_macro}
-        onChange={(v) => void patchSettings(settings, { auto_caps_macro: v })}
+      <div className="ui-card">
+        <SettingRow
+          label={strings.macroTab.autoCapsMacro}
+          checked={settings.auto_caps_macro}
+          onChange={(v) => void patchSettings(settings, { auto_caps_macro: v })}
+        />
+      </div>
+
+      <ConfirmDialog
+        open={pendingImport !== null}
+        title={strings.macroEditor.importDialogTitle}
+        message={strings.macroEditor.importKeepDataQuestion}
+        confirmLabel={strings.footer.yes}
+        cancelLabel={strings.footer.no}
+        onConfirm={() => void resolveImport(true)}
+        onCancel={() => void resolveImport(false)}
       />
+      <ToastHost />
     </div>
   );
 }

@@ -826,6 +826,11 @@ input[type="radio"] {
   gap: var(--sp-2);
   margin-top: var(--sp-1);
 }
+.about-window .setting-row {
+  align-self: stretch;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
 .about-window .window-actions {
   margin-top: auto;
 }
@@ -925,6 +930,12 @@ input[type="radio"] {
    Convert tool
    ============================================================================ */
 
+.convert-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+}
 .convert-tool .code-row {
   display: flex;
   align-items: flex-end;

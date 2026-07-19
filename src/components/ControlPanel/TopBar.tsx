@@ -1,18 +1,11 @@
 import { useEffect, useState } from "react";
 
-import { HotkeyRecorder } from "../HotkeyRecorder";
+import { HotkeyChips } from "../HotkeyChips";
 import { Button, Segmented, Select, Toggle } from "../ui";
 import { decodeHotkey, encodeHotkey } from "../../lib/hotkey";
 import { getPermissionStatus, openAccessibilitySettings, setCodeTable, setInputType, setLanguage, setSwitchHotkey } from "../../lib/ipc";
 import { strings } from "../../lib/strings";
 import type { Settings } from "../../lib/types";
-
-const MODIFIERS: Array<{ key: "ctrl" | "opt" | "cmd" | "shift"; glyph: string; name: string }> = [
-  { key: "ctrl", glyph: "⌃", name: "Control" },
-  { key: "opt", glyph: "⌥", name: "Option" },
-  { key: "cmd", glyph: "⌘", name: "Command" },
-  { key: "shift", glyph: "⇧", name: "Shift" },
-];
 
 export function TopBar({ settings }: { settings: Settings }) {
   const [granted, setGranted] = useState<boolean | null>(null);
@@ -74,21 +67,12 @@ export function TopBar({ settings }: { settings: Settings }) {
       <div className="cp-hotkey">
         <div className="cp-hotkey__row">
           <span className="cp-field-row__label">{strings.topBar.switchHotkey}</span>
-          <div className="cp-chips">
-            {MODIFIERS.map((m) => (
-              <button
-                key={m.key}
-                type="button"
-                className={`ui-chip${hotkey[m.key] ? " is-on" : ""}`}
-                aria-pressed={hotkey[m.key]}
-                aria-label={m.name}
-                onClick={() => updateHotkey({ [m.key]: !hotkey[m.key] } as Partial<typeof hotkey>)}
-              >
-                {m.glyph}
-              </button>
-            ))}
-            <HotkeyRecorder char={hotkey.char} onChange={(keycode, char) => updateHotkey({ keycode, char })} />
-          </div>
+          <HotkeyChips
+            mods={hotkey}
+            char={hotkey.char}
+            onToggle={(key) => updateHotkey({ [key]: !hotkey[key] } as Partial<typeof hotkey>)}
+            onRecord={(keycode, char) => updateHotkey({ keycode, char })}
+          />
         </div>
 
         <label className="cp-inline-toggle">

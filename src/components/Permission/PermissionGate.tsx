@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
+import { Button } from "../ui";
 import { getPermissionStatus, openAccessibilitySettings, restartApp } from "../../lib/ipc";
 import { strings } from "../../lib/strings";
 
@@ -36,12 +37,19 @@ export function PermissionGate() {
 
   return (
     <div className="window permission-gate">
+      <img className="app-logo" src="/icon.png" alt="" width={72} height={72} />
       <h2>{strings.permissionGate.title}</h2>
       <p>{strings.permissionGate.explain}</p>
       {granted && <p className="permission-gate-granted">{strings.permissionGate.granted}</p>}
       <div className="window-actions">
-        {!granted && <button onClick={() => void openAccessibilitySettings()}>{strings.permissionGate.openSettings}</button>}
-        <button onClick={handleRestart}>{strings.permissionGate.restart}</button>
+        {!granted && (
+          <Button variant="primary" onClick={() => void openAccessibilitySettings()}>
+            {strings.permissionGate.openSettings}
+          </Button>
+        )}
+        <Button variant="secondary" onClick={handleRestart}>
+          {strings.permissionGate.restart}
+        </Button>
       </div>
     </div>
   );

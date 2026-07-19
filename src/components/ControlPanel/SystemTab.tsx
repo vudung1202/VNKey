@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { Button, SettingRow } from "../ui";
+import { Button, SettingRow, showToast } from "../ui";
 import { checkUpdate, patchSettings } from "../../lib/ipc";
 import { strings } from "../../lib/strings";
 import type { Settings } from "../../lib/types";
@@ -17,9 +17,9 @@ export function SystemTab({ settings }: { settings: Settings }) {
     const result = await checkUpdate();
     setChecking(false);
     if (result) {
-      window.alert(`Phiên bản mới: ${result.version}\n${result.url}`);
+      showToast({ title: `Phiên bản mới: ${result.version}`, sub: result.url });
     } else {
-      window.alert("Bạn đang dùng bản mới nhất.");
+      showToast({ title: "Bạn đang dùng bản mới nhất." });
     }
   }
 

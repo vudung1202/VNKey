@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { confirm } from "@tauri-apps/plugin-dialog";
 
 import { getPermissionStatus, getSettings, hasOpenKeyData, importOpenKeySettings, markFirstRunOfferShown } from "../../lib/ipc";
 import { strings } from "../../lib/strings";
 import type { Settings } from "../../lib/types";
-import { Segmented } from "../ui";
+import { ConfirmDialog, Segmented, ToastHost } from "../ui";
 import { PermissionGate } from "../Permission/PermissionGate";
 import { AboutTab } from "./AboutTab";
 import { Footer } from "./Footer";
@@ -21,6 +20,7 @@ export function ControlPanel() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [tab, setTab] = useState<TabKey>("typing");
   const [permissionGranted, setPermissionGranted] = useState<boolean | null>(null);
+  const [firstRunOpen, setFirstRunOpen] = useState(false);
   const importOfferAsked = useRef(false);
 
   useEffect(() => {
@@ -60,21 +60,21 @@ export function ControlPanel() {
     void (async () => {
       const [currentSettings, openKeyData] = await Promise.all([getSettings(), hasOpenKeyData()]);
       if (currentSettings.first_run_offer_shown || !openKeyData) return;
-      const yes = await confirm(strings.firstRun.offer, {
-        title: strings.firstRun.title,
-        okLabel: strings.footer.yes,
-        cancelLabel: strings.footer.no,
-      });
-      if (yes) {
-        // Applies + persists + reloads the engine server-side (and sets
-        // `first_run_offer_shown` itself); mirror the result into local
-        // state the same way `settings-changed` does.
-        setSettings(await importOpenKeySettings());
-      } else {
-        setSettings(await markFirstRunOfferShown());
-      }
+      setFirstRunOpen(true);
     })();
   }, [permissionGranted]);
+
+  // `importOpenKeySettings` applies + persists + reloads the engine server-side
+  // (and sets `first_run_offer_shown` itself); either branch mirrors the result
+  // into local state the same way the `settings-changed` listener does.
+  async function acceptFirstRun() {
+    setFirstRunOpen(false);
+    setSettings(await importOpenKeySettings());
+  }
+  async function declineFirstRun() {
+    setFirstRunOpen(false);
+    setSettings(await markFirstRunOfferShown());
+  }
 
   if (permissionGranted === false) {
     return <PermissionGate />;
@@ -104,6 +104,17 @@ export function ControlPanel() {
       </div>
 
       <Footer />
+
+      <ConfirmDialog
+        open={firstRunOpen}
+        title={strings.firstRun.title}
+        message={strings.firstRun.offer}
+        confirmLabel={strings.footer.yes}
+        cancelLabel={strings.footer.no}
+        onConfirm={() => void acceptFirstRun()}
+        onCancel={() => void declineFirstRun()}
+      />
+      <ToastHost />
     </div>
   );
 }
