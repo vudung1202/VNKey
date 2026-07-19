@@ -60,6 +60,10 @@ export const strings = {
     performLayoutCompat: "Tương thích Telex trên các Layout khác (Dvorak, Colemak, ...)",
     checkUpdate: "Kiểm tra bản mới...",
     checking: "Đang kiểm tra...",
+    theme: "Giao diện",
+    themeAuto: "Tự động",
+    themeLight: "Sáng",
+    themeDark: "Tối",
   },
 
   aboutTab: {

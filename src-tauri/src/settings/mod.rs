@@ -95,6 +95,13 @@ pub struct Settings {
     /// permission and relaunched, silently skipping the offer forever.
     #[serde(default)]
     pub first_run_offer_shown: bool,
+    /// UI appearance preference: 0 = follow the OS (default), 1 = light,
+    /// 2 = dark. Frontend-only -- the engine, tray, and platform layer never
+    /// read it; it exists here so the choice persists and broadcasts to every
+    /// window like any other setting. `#[serde(default)]` (0) keeps
+    /// pre-theme `settings.json` files loading.
+    #[serde(default)]
+    pub theme: u8,
 
     // -- Convert tool --
     /// Raw `CodeTable` discriminant of the "convert from" table.
@@ -164,6 +171,7 @@ impl Default for Settings {
             show_ui_on_startup: false,
             dont_check_update: false,
             first_run_offer_shown: false,
+            theme: 0,
 
             // -- Convert tool --
             convert_from_code: 0,

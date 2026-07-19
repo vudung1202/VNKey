@@ -5,7 +5,7 @@
    ============================================================================ */
 
 :root {
-  color-scheme: dark light;
+  color-scheme: dark;
 
   /* Type - Geist Sans for UI, Geist Mono for keycaps/hotkeys/macro keys. */
   --font-sans: "Geist Variable", -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
@@ -62,31 +62,34 @@
   --ring: 0 0 0 3px color-mix(in srgb, var(--accent) 42%, transparent);
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    --bg: #f5f6f7;
-    --surface: #ffffff;
-    --surface-2: #f0f1f3;
-    --surface-hover: #e8eaed;
-    --text: #17181b;
-    --text-secondary: #5b6068;
-    --text-tertiary: #8a9099;
-    --border: #e2e4e8;
-    --border-strong: #d0d3d9;
+/* Light theme. Applied via data-theme (set by lib/theme.ts + the pre-paint
+   script in index.html), which resolves "system" against prefers-color-scheme
+   in JS -- so there is no @media block here; the attribute is the single source. */
+:root[data-theme="light"] {
+  color-scheme: light;
 
-    /* Darker emerald + red in light mode so accent text on white and white
-       text on the accent fill both clear WCAG AA 4.5:1 (the vivid dark-mode
-       values only need to pass on dark surfaces). */
-    --accent: #047857;
-    --accent-contrast: #ffffff;
-    --danger: #c8262b;
+  --bg: #f5f6f7;
+  --surface: #ffffff;
+  --surface-2: #f0f1f3;
+  --surface-hover: #e8eaed;
+  --text: #17181b;
+  --text-secondary: #5b6068;
+  --text-tertiary: #8a9099;
+  --border: #e2e4e8;
+  --border-strong: #d0d3d9;
 
-    --warning-bg: #fff4e5;
-    --warning-text: #9a5b00;
+  /* Darker emerald + red in light mode so accent text on white and white
+     text on the accent fill both clear WCAG AA 4.5:1 (the vivid dark-mode
+     values only need to pass on dark surfaces). */
+  --accent: #047857;
+  --accent-contrast: #ffffff;
+  --danger: #c8262b;
 
-    --shadow-1: 0 1px 2px rgba(16, 24, 32, 0.10), 0 0 0 1px rgba(16, 24, 32, 0.04);
-    --shadow-2: 0 12px 32px rgba(16, 24, 32, 0.16), 0 3px 8px rgba(16, 24, 32, 0.10);
-  }
+  --warning-bg: #fff4e5;
+  --warning-text: #9a5b00;
+
+  --shadow-1: 0 1px 2px rgba(16, 24, 32, 0.10), 0 0 0 1px rgba(16, 24, 32, 0.04);
+  --shadow-2: 0 12px 32px rgba(16, 24, 32, 0.16), 0 3px 8px rgba(16, 24, 32, 0.10);
 }
 
 /* ============================================================================

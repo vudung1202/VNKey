@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 
 import { getPermissionStatus, getSettings, hasOpenKeyData, importOpenKeySettings, markFirstRunOfferShown } from "../../lib/ipc";
 import { strings } from "../../lib/strings";
+import { themePrefFromSetting, useTheme } from "../../lib/theme";
 import type { Settings } from "../../lib/types";
 import { ConfirmDialog, Segmented, ToastHost } from "../ui";
 import { PermissionGate } from "../Permission/PermissionGate";
@@ -75,6 +76,8 @@ export function ControlPanel() {
     setFirstRunOpen(false);
     setSettings(await markFirstRunOfferShown());
   }
+
+  useTheme(themePrefFromSetting(settings?.theme ?? 0));
 
   if (permissionGranted === false) {
     return <PermissionGate />;

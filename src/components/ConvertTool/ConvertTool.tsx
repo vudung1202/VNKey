@@ -7,6 +7,7 @@ import { Button, Select, SettingRow, ToastHost, Toggle, showToast } from "../ui"
 import { decodeHotkey, encodeHotkey } from "../../lib/hotkey";
 import { convertClipboard, getSettings, patchSettings, setConvertHotkey } from "../../lib/ipc";
 import { strings } from "../../lib/strings";
+import { themePrefFromSetting, useTheme } from "../../lib/theme";
 import type { ConvertOptions, Settings } from "../../lib/types";
 
 type CapsField = "convert_to_all_caps" | "convert_to_all_non_caps" | "convert_to_caps_first_letter" | "convert_to_caps_each_word";
@@ -27,6 +28,8 @@ export function ConvertTool() {
       unlisten.then((f) => f());
     };
   }, []);
+
+  useTheme(themePrefFromSetting(settings?.theme ?? 0));
 
   if (!settings) return null;
 

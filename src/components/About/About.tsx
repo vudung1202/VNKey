@@ -7,6 +7,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { Button, SettingRow, ToastHost, showToast } from "../ui";
 import { checkUpdate, getSettings, patchSettings } from "../../lib/ipc";
 import { strings } from "../../lib/strings";
+import { themePrefFromSetting, useTheme } from "../../lib/theme";
 import type { Settings } from "../../lib/types";
 
 /**
@@ -29,6 +30,8 @@ export function About() {
       unlisten.then((f) => f());
     };
   }, []);
+
+  useTheme(themePrefFromSetting(settings?.theme ?? 0));
 
   if (!settings) return null;
 

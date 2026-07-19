@@ -1,8 +1,9 @@
 import { useState } from "react";
 
-import { Button, SettingRow, showToast } from "../ui";
+import { Button, Segmented, SettingRow, showToast } from "../ui";
 import { checkUpdate, patchSettings } from "../../lib/ipc";
 import { strings } from "../../lib/strings";
+import { themePrefFromSetting, themeSettingFromPref, type ThemePref } from "../../lib/theme";
 import type { Settings } from "../../lib/types";
 
 export function SystemTab({ settings }: { settings: Settings }) {
@@ -25,6 +26,24 @@ export function SystemTab({ settings }: { settings: Settings }) {
 
   return (
     <div className="tab-panel">
+      <div className="ui-card">
+        <div className="setting-row">
+          <span className="setting-row__text">
+            <span className="setting-row__label">{strings.systemTab.theme}</span>
+          </span>
+          <Segmented
+            ariaLabel={strings.systemTab.theme}
+            value={themePrefFromSetting(settings.theme)}
+            onChange={(pref: ThemePref) => void patchSettings(settings, { theme: themeSettingFromPref(pref) })}
+            items={[
+              { value: "system", label: strings.systemTab.themeAuto },
+              { value: "light", label: strings.systemTab.themeLight },
+              { value: "dark", label: strings.systemTab.themeDark },
+            ]}
+          />
+        </div>
+      </div>
+
       <div className="ui-card">
         <SettingRow label={strings.systemTab.showIconOnDock} checked={settings.show_icon_on_dock} onChange={(v) => patch("show_icon_on_dock", v)} />
         <SettingRow label={strings.systemTab.showUiOnStartup} checked={settings.show_ui_on_startup} onChange={(v) => patch("show_ui_on_startup", v)} />

@@ -5,6 +5,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { Button, ConfirmDialog, SettingRow, ToastHost, showToast } from "../ui";
 import { getSettings, macroAdd, macroDelete, macroExport, macroImport, macroList, patchSettings } from "../../lib/ipc";
 import { strings } from "../../lib/strings";
+import { themePrefFromSetting, useTheme } from "../../lib/theme";
 import type { MacroEntry, Settings } from "../../lib/types";
 
 /**
@@ -85,6 +86,8 @@ export function MacroEditor() {
     if (!path) return;
     await macroExport(path);
   }
+
+  useTheme(themePrefFromSetting(settings?.theme ?? 0));
 
   if (!settings) return null;
 
