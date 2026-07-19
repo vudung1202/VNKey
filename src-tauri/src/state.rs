@@ -29,8 +29,11 @@ pub struct EngineCore {
     /// Per-app (bundle-id) input-language memory (`SmartSwitchKey.cpp`). Lives
     /// under the engine lock because both the main-thread NSWorkspace observer
     /// (on app activation) and the tap thread (on a manual language switch)
-    /// mutate it. In-memory only this task; Task 11 loads/saves the on-disk
-    /// blob via [`SmartSwitchTable::from_blob`]/`to_blob` through this field.
+    /// mutate it. Task 11 loads the on-disk blob into this field at startup
+    /// via [`SmartSwitchTable::from_blob`]; both mutation sites persist it
+    /// back out via `to_blob`/`save_smart_switch` after they change it (final
+    /// review fix -- see `platform::mac::smart_switch`'s `on_active_app` and
+    /// `persist_after_manual_switch`).
     pub smart_switch: SmartSwitchTable,
 }
 

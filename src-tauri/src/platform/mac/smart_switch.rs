@@ -15,6 +15,7 @@
 //! language bit (`_languageTemp & 1`) and restores the code table through the
 //! separate remember-code branch — the evident intent.
 
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use parking_lot::Mutex;
@@ -137,6 +138,11 @@ pub fn on_active_app(app: &AppHandle, engine: &Mutex<EngineCore>, config: &Share
         core.engine.set_code_table(new_code_table);
         state_changed = true;
     }
+    // A newly seen app was just registered in the table (`resolve_active_app`
+    // -> `get_status`'s miss branch): snapshot it now, under the lock (cheap,
+    // in-memory clone), so the disk write below runs after the lock is
+    // dropped rather than making the tap thread's next keystroke wait on it.
+    let table_snapshot = decision.registered.then(|| core.smart_switch.clone());
     drop(core);
 
     // Sync the tray + emit `status-changed` for the UI. Called at most once
@@ -147,17 +153,22 @@ pub fn on_active_app(app: &AppHandle, engine: &Mutex<EngineCore>, config: &Share
         crate::tray::sync_after_live_change(app, config);
     }
 
-    // TODO(Task 11): if `decision.registered`, persist the smart-switch blob
-    // (`EngineCore::smart_switch.to_blob()` -> NSUserDefaults). The table is
-    // in-memory only this task, so a newly seen app's registration is lost on
-    // restart.
-    let _ = decision.registered;
+    // Persist the newly registered app so it survives restart. Safe to save
+    // directly here: this handler already runs on the main thread (the
+    // NSWorkspace activation observer), and the lock was dropped above, so
+    // this doesn't add AppKit/disk I/O to the tap thread or hold the shared
+    // engine lock during the write.
+    if let Some(table) = table_snapshot {
+        let _ = crate::settings::save_smart_switch(&table);
+    }
 }
 
 /// Remember the user's manual language switch for the frontmost app
 /// (`OnInputMethodChanged`, `OpenKey.mm:237-242`). Called on the tap thread
 /// from the switch-hotkey path, with the engine already locked. Reads the
-/// post-switch `enabled` value from `config`.
+/// post-switch `enabled` value from `config`. Persistence happens separately
+/// -- `tap.rs` calls [`persist_after_manual_switch`] right after this
+/// (fire-and-forget), since disk I/O must never run on the tap thread.
 pub fn record_manual_switch(core: &mut EngineCore, config: &SharedConfig) {
     if !config.use_smart_switch_key.load(Ordering::Relaxed) {
         return;
@@ -169,13 +180,28 @@ pub fn record_manual_switch(core: &mut EngineCore, config: &SharedConfig) {
     };
     let packed = pack_status(config.enabled.load(Ordering::Relaxed), config.code_table());
     core.smart_switch.set_status(&bundle_id, packed);
-    // TODO(Task 11): persist the smart-switch blob after this change.
+}
+
+/// Fire-and-forget: persist the smart-switch table after a manual-switch
+/// mutation made on the tap thread by [`record_manual_switch`]. Hops to the
+/// main thread (`run_on_main_thread`), clones the table under the engine lock
+/// there (cheap, in-memory), then writes it to disk after releasing the
+/// lock -- so neither the tap-thread callback nor the shared engine lock is
+/// ever held during I/O.
+pub(crate) fn persist_after_manual_switch(app: &AppHandle, engine: &Arc<Mutex<EngineCore>>) {
+    let app = app.clone();
+    let engine = engine.clone();
+    let _ = app.clone().run_on_main_thread(move || {
+        let table = engine.lock().smart_switch.clone();
+        let _ = crate::settings::save_smart_switch(&table);
+    });
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use vnkey_engine::CodeTable::{Cp1258, Unicode};
+    use vnkey_engine::{Engine, EngineOptions};
 
     #[test]
     fn packed_value_is_never_negative_even_for_code_table_4() {
@@ -261,5 +287,42 @@ mod tests {
         let d = resolve_active_app(&mut t, "com.a", false, Unicode, false);
         assert!(d.registered);
         assert_eq!(d.new_enabled, None);
+    }
+
+    /// Final review fix regression: before this fix, a [`record_manual_switch`]
+    /// mutation lived only in memory and was lost on restart -- nothing ever
+    /// called [`crate::settings::save_smart_switch`] afterward. This proves the
+    /// mutation itself is the kind of change that must survive a save+reload:
+    /// run the exact mutation `tap.rs`'s hotkey path performs, then round-trip
+    /// the resulting table through the same `to_blob`/`from_blob` pair
+    /// [`crate::settings::save_smart_switch`]/`load_smart_switch` use against
+    /// `smart_switch.bin` (see `settings::mod.rs`'s
+    /// `smart_switch_blob_round_trips_through_file`, which covers the disk
+    /// half of that same pair). Together they demonstrate the persisted blob
+    /// really does carry a manual-switch mutation -- the missing link is now
+    /// closed by `tap.rs` calling [`persist_after_manual_switch`] right after
+    /// [`record_manual_switch`] (verified by inspection: both hotkey branches
+    /// in `tap.rs::tap_callback` call it immediately after `record_manual_switch`,
+    /// and `on_active_app` above saves its own `registered` mutation directly).
+    #[test]
+    fn record_manual_switch_mutation_survives_a_save_reload_round_trip() {
+        let mut core = EngineCore::new(Engine::new(EngineOptions::default()));
+        let config = SharedConfig::new(&EngineOptions::default());
+        config.set_frontmost_bundle_id(Some("com.apple.Safari".into()));
+        config.use_smart_switch_key.store(true, Ordering::Relaxed);
+        config.enabled.store(false, Ordering::Relaxed); // manually switched to English
+        config.set_code_table(Cp1258);
+
+        record_manual_switch(&mut core, &config);
+
+        // Round-trip exactly like `save_smart_switch`/`load_smart_switch`
+        // (settings::mod.rs) do against `smart_switch.bin`.
+        let blob = core.smart_switch.to_blob();
+        let mut reloaded = SmartSwitchTable::from_blob(&blob);
+        assert_eq!(
+            reloaded.get_status("com.apple.Safari", -1),
+            pack_status(false, Cp1258),
+            "the manual-switch mutation must survive a save+reload blob round trip"
+        );
     }
 }

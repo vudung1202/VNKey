@@ -245,10 +245,12 @@ unsafe extern "C-unwind" fn tap_callback(
             // `OnInputMethodChanged`).
             smart_switch::record_manual_switch(&mut core, &ctx.config);
             drop(core);
-            // Fire-and-forget: post the tray/UI sync to the main thread. Must
-            // not block this callback (see `notify_language_switched`'s doc
-            // comment).
+            // Fire-and-forget: post the tray/UI sync and the smart-switch
+            // persist to the main thread. Must not block this callback (see
+            // `notify_language_switched`'s and `persist_after_manual_switch`'s
+            // doc comments).
             crate::tray::notify_language_switched(&ctx.app_handle, &ctx.config);
+            smart_switch::persist_after_manual_switch(&ctx.app_handle, &ctx.engine);
             return core::ptr::null_mut();
         }
     } else if ty == CGEventType::FlagsChanged {
@@ -265,6 +267,7 @@ unsafe extern "C-unwind" fn tap_callback(
             smart_switch::record_manual_switch(&mut core, &ctx.config);
             drop(core);
             crate::tray::notify_language_switched(&ctx.app_handle, &ctx.config);
+            smart_switch::persist_after_manual_switch(&ctx.app_handle, &ctx.engine);
             return core::ptr::null_mut();
         }
         if action.temp_off_spelling || action.temp_off_openkey {
@@ -278,22 +281,18 @@ unsafe extern "C-unwind" fn tap_callback(
         }
     }
 
-    // The active code table (`vCodeTable`) can change at runtime via
-    // smart-switch, so read the current value from shared state each keystroke
-    // rather than caching it on the tap thread.
-    let code_table = ctx.config.code_table();
-
     // 4. Mouse -> full session reset (OpenKey `RequestNewSession()`,
     // OpenKey.mm:147-154). See `EngineCore::request_new_session` for why this
     // drives a Mouse event through the engine (and ignores the `HookState`)
     // rather than calling `start_new_session()` directly. Pass the click
-    // through.
+    // through. Not part of the decode/encode dispatch below, so the code
+    // table is read fresh here rather than threaded in from step 8.
     if ty == CGEventType::LeftMouseDown
         || ty == CGEventType::RightMouseDown
         || ty == CGEventType::LeftMouseDragged
         || ty == CGEventType::RightMouseDragged
     {
-        ctx.engine.lock().request_new_session(code_table);
+        ctx.engine.lock().request_new_session(ctx.config.code_table());
         return event.as_ptr();
     }
 
@@ -321,9 +320,17 @@ unsafe extern "C-unwind" fn tap_callback(
 
     // 8. Engine under the lock; snapshot the decision; take `_syncKey` out so
     // injection runs lock-free (posting events must not re-enter the engine
-    // while the lock is held).
-    let (snap, mut sync_key) = {
+    // while the lock is held). The code table is also snapshotted here, under
+    // the same lock that guards the engine's own encode step, instead of
+    // being read separately before/after -- so a concurrent smart-switch or
+    // settings change (which now also updates the engine and `SharedConfig`
+    // together under this same lock; see `commands.rs::apply_settings_core`)
+    // can never be observed half-applied: decode (this snapshot, used by
+    // `InjectCtx` below) and encode (inside `handle_event`) always agree on
+    // which table produced `snap`/`sync_key` (final review fix).
+    let (snap, mut sync_key, code_table) = {
         let mut core = ctx.engine.lock();
+        let code_table = ctx.config.code_table();
         let hook = core.engine.handle_event(
             KeyEvent::Keyboard,
             KeyEventState::KeyDown,
@@ -343,7 +350,7 @@ unsafe extern "C-unwind" fn tap_callback(
             shift: caps_status == 1,
         };
         let sk = std::mem::take(&mut core.sync_key);
-        (snap, sk)
+        (snap, sk, code_table)
     };
 
     // Read the frontmost bundle id from the cache the main-thread NSWorkspace

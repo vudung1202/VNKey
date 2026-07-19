@@ -66,14 +66,28 @@ pub struct UpdateInfo {
 /// entire reason this is split out from [`apply_and_broadcast`]: the tray
 /// update and event emission need a live `AppHandle`, but the state-mutation
 /// itself doesn't.
+///
+/// The engine-options update and the `SharedConfig` update run under the
+/// *same* engine-lock critical section (final review fix): previously they
+/// were two separate statements, so the engine's `code_table` could be
+/// updated while `SharedConfig::code_table` (the atomic `tap.rs`'s injector
+/// reads) still held the old value. A keystroke handled on the tap thread in
+/// that window would encode with the engine's new table but decode/split
+/// with `SharedConfig`'s old one, desyncing the `_syncKey` stack. Locking
+/// across both writes means any tap-thread dispatch -- which now also reads
+/// `SharedConfig::code_table` inside its own engine-lock hold (`tap.rs`) --
+/// can never observe a torn state between the two.
 pub(crate) fn apply_settings_core(
     engine: &Mutex<EngineCore>,
     config: &SharedConfig,
     settings: Settings,
     save: impl FnOnce(&Settings) -> std::io::Result<()>,
 ) -> Settings {
-    engine.lock().engine.set_options(settings.to_engine_options());
-    settings.apply_to_shared_config(config);
+    {
+        let mut core = engine.lock();
+        core.engine.set_options(settings.to_engine_options());
+        settings.apply_to_shared_config(config);
+    }
     let _ = save(&settings);
     settings
 }
@@ -442,6 +456,35 @@ mod tests {
             config.code_table(),
             CodeTable::VniWindows,
             "SharedConfig.code_table must stay VNI Windows, not clobbered back to Unicode"
+        );
+    }
+
+    /// Final review fix regression: `apply_settings_core` used to update the
+    /// engine's code table and `SharedConfig::code_table` as two separate
+    /// statements (the engine lock from the first was dropped before the
+    /// second ran), so a tap-thread keystroke landing in between could read a
+    /// torn state. There's no public accessor for `Engine.opts.code_table`
+    /// directly (it's `pub(crate)` inside `vnkey-engine`), but
+    /// `MacroTable::code_table()` tracks it exactly -- `Engine::set_options`
+    /// re-syncs the macro table's code whenever `opts.code_table` changes
+    /// (`engine.rs::set_options`) -- so it's usable here as an observable
+    /// proxy for "what the engine's encode step will use". This confirms
+    /// both ends land on the new table after one `apply_settings_core` call.
+    #[test]
+    fn apply_settings_core_syncs_engine_and_shared_config_code_table() {
+        let engine = Mutex::new(EngineCore::new(Engine::new(EngineOptions::default())));
+        let config = SharedConfig::new(&EngineOptions::default());
+        assert_eq!(config.code_table(), CodeTable::Unicode, "precondition: default table");
+
+        let settings = Settings { code_table: CodeTable::VniWindows as u8, ..Settings::default() };
+        apply_settings_core(&engine, &config, settings, |_| Ok(()));
+
+        assert_eq!(config.code_table(), CodeTable::VniWindows);
+        assert_eq!(
+            engine.lock().engine.macro_table().code_table(),
+            CodeTable::VniWindows,
+            "the engine's own code table (proxied via the macro table it keeps in sync) \
+             must agree with SharedConfig's after a single apply_settings_core call"
         );
     }
 
