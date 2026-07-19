@@ -11,9 +11,7 @@
 //!
 //! Scope: break-code / SPACE / DELETE (Task 5) plus the normal-key path
 //! (Task 4). Macro lookup (`isMacroBreakCode`/`findMacro`), `vEnglishMode`
-//! and the temp-off-engine/spelling session methods stay out of scope (Task
-//! 6/7); `find_macro` is a stub that always reports "no macro found" so the
-//! break/SPACE call-site structure is in place without a macro table.
+//! and the temp-off-engine/spelling session methods were added in Task 6/7.
 //!
 //! Clippy lints are allowed where "simplifying" would break the 1:1 mapping to
 //! `Engine.cpp`: `int_plus_one` keeps the C++ `x - 1 >= 0` index guards
@@ -1122,9 +1120,8 @@ impl Engine {
 
     /// `Engine.cpp:1284-1312 vEnglishMode`. English mode never transforms
     /// keys (`hCode` stays `DoNothing`); it only accumulates/clears
-    /// `hook.macro_key` for the (Task 7, still-stubbed) macro lookup on
-    /// SPACE, and tracks `will_temp_off_engine` the same way the normal-key
-    /// path does.
+    /// `hook.macro_key` for the macro lookup (`find_macro`) on SPACE, and
+    /// tracks `will_temp_off_engine` the same way the normal-key path does.
     pub fn english_mode(
         &mut self,
         st: KeyEventState,

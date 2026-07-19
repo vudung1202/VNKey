@@ -67,7 +67,11 @@ export const strings = {
     description: "Bộ gõ tiếng Việt mã nguồn mở, kế thừa OpenKey (GPL-3.0).",
     credit: "Dựa trên OpenKey của Mai Vũ Tuyên.",
     sourceCode: "Mã nguồn...",
-    sourceCodeUrl: "https://github.com/tuyenvm/OpenKey",
+    // TODO: placeholder — replace with the real VNKey repo URL once it exists.
+    // Used as both the "Trang chủ" (home page) and "Mã nguồn" (source code)
+    // link in the About window/tab, since the project has no separate
+    // homepage from its repo.
+    sourceCodeUrl: "https://github.com/yourname/VNKey",
   },
 
   footer: {
