@@ -79,6 +79,22 @@ pub struct Settings {
     pub run_on_startup: bool,
     pub show_ui_on_startup: bool,
     pub dont_check_update: bool,
+    /// Task 15 review fix: whether the first-run OpenKey-import offer has
+    /// already been evaluated (with permission granted) and answered --
+    /// Yes or No doesn't matter, just "asked" -- so it's never asked again.
+    /// `#[serde(default)]` so a `settings.json` written before this field
+    /// existed still deserializes (missing key -> `false`), i.e. those
+    /// installs still get the offer once.
+    ///
+    /// Deliberately NOT derived from `settings.json`'s mere existence (the
+    /// bug this field fixes): `platform::mac::start`'s `Settings::load()`
+    /// auto-persists the file on the very first launch regardless of
+    /// Accessibility permission, well before the offer can ever be
+    /// evaluated with permission granted -- so file-existence alone was
+    /// already `true` by the time an untrusted-first-launch user granted
+    /// permission and relaunched, silently skipping the offer forever.
+    #[serde(default)]
+    pub first_run_offer_shown: bool,
 
     // -- Convert tool --
     /// Raw `CodeTable` discriminant of the "convert from" table.
@@ -147,6 +163,7 @@ impl Default for Settings {
             run_on_startup: true,
             show_ui_on_startup: false,
             dont_check_update: false,
+            first_run_offer_shown: false,
 
             // -- Convert tool --
             convert_from_code: 0,
@@ -268,15 +285,6 @@ fn config_dir() -> PathBuf {
 
 fn settings_path() -> PathBuf {
     config_dir().join("settings.json")
-}
-
-/// Whether `settings.json` exists on disk *right now*. `lib.rs`'s `setup`
-/// calls this before `Settings::load()` (which auto-creates the file with
-/// defaults on a missing/corrupt read -- see `load_from` below) to capture
-/// a "first run" signal: the simplest possible one, per the task 15 brief,
-/// since the file existing at all means some previous launch already ran.
-pub(crate) fn settings_file_exists() -> bool {
-    settings_path().exists()
 }
 
 fn macros_path() -> PathBuf {
@@ -418,6 +426,7 @@ mod tests {
         assert!(!s.show_icon_on_dock);
         assert!(!s.show_ui_on_startup);
         assert!(!s.dont_check_update);
+        assert!(!s.first_run_offer_shown);
     }
 
     #[test]
@@ -442,11 +451,41 @@ mod tests {
             input_type: InputType::Vni as u8,
             switch_key_status: 0x1234_5678,
             convert_hotkey: 0xABCD,
+            first_run_offer_shown: true,
             ..Settings::default()
         };
         let json = serde_json::to_string(&s).expect("serialize");
         let restored: Settings = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(s, restored);
+    }
+
+    /// Task 15 review fix regression: a `settings.json` written before
+    /// `first_run_offer_shown` existed (every other real field present and
+    /// non-default, but no `"first_run_offer_shown"` key at all) must still
+    /// deserialize with those other fields intact -- NOT fall back to
+    /// `Settings::default()` wholesale, which would silently reset the
+    /// user's actual configuration. Only the new field should default to
+    /// `false` (so pre-existing installs still get the first-run offer
+    /// once). Fails without `#[serde(default)]` on the field: a plain
+    /// `#[derive(Deserialize)]` treats a missing field as a hard parse
+    /// error, and `load_from`'s `.ok()` fallback would then return
+    /// `Settings::default()` entirely, losing `language`/`input_type` too
+    /// (confirmed by temporarily removing the attribute and re-running this
+    /// test, which then fails on the `language`/`input_type` assertions).
+    #[test]
+    fn old_settings_json_without_first_run_offer_shown_key_still_loads_other_fields() {
+        let path = tempdir().join("settings.json");
+        let old = Settings { language: 0, input_type: InputType::Vni as u8, ..Settings::default() };
+        let mut json: serde_json::Value = serde_json::to_value(old).expect("serialize to Value");
+        json.as_object_mut()
+            .expect("Settings serializes to a JSON object")
+            .remove("first_run_offer_shown");
+        fs::write(&path, serde_json::to_vec(&json).expect("serialize without the new key")).expect("write fixture");
+
+        let loaded = Settings::load_from(&path);
+        assert!(!loaded.first_run_offer_shown, "a missing key must default to false");
+        assert_eq!(loaded.language, 0, "other persisted fields must survive, not reset to Settings::default()");
+        assert_eq!(loaded.input_type, InputType::Vni as u8);
     }
 
     #[test]

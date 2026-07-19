@@ -93,15 +93,16 @@ export function hasOpenKeyData(): Promise<boolean> {
   return invoke("has_openkey_data");
 }
 
-// Whether `settings.json` existed before this process's launch
-// (`src-tauri/src/state.rs`'s `FirstRun`) -- `ControlPanel` ANDs this with
-// `hasOpenKeyData()` to decide whether to offer the first-run import.
-export function isFirstRun(): Promise<boolean> {
-  return invoke("is_first_run");
-}
-
 export function importOpenKeySettings(): Promise<Settings> {
   return invoke("import_openkey_settings");
+}
+
+// Task 15 review fix: persists `Settings.first_run_offer_shown = true` for
+// the "declined the first-run OpenKey import offer" path (the "accepted"
+// path's `importOpenKeySettings()` sets the flag itself). Either way the
+// offer is never asked again.
+export function markFirstRunOfferShown(): Promise<Settings> {
+  return invoke("mark_first_run_offer_shown");
 }
 
 export function checkUpdate(): Promise<UpdateInfo | null> {

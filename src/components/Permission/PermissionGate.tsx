@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { getPermissionStatus, openAccessibilitySettings, restartApp } from "../../lib/ipc";
 import { strings } from "../../lib/strings";
@@ -20,13 +20,19 @@ const POLL_INTERVAL_MS = 1500;
  */
 export function PermissionGate() {
   const [granted, setGranted] = useState(false);
+  const pollId = useRef<number | undefined>(undefined);
 
   useEffect(() => {
-    const id = window.setInterval(() => {
+    pollId.current = window.setInterval(() => {
       void getPermissionStatus().then(setGranted);
     }, POLL_INTERVAL_MS);
-    return () => window.clearInterval(id);
+    return () => window.clearInterval(pollId.current);
   }, []);
+
+  const handleRestart = () => {
+    window.clearInterval(pollId.current);
+    void restartApp();
+  };
 
   return (
     <div className="window permission-gate">
@@ -35,7 +41,7 @@ export function PermissionGate() {
       {granted && <p className="permission-gate-granted">{strings.permissionGate.granted}</p>}
       <div className="window-actions">
         {!granted && <button onClick={() => void openAccessibilitySettings()}>{strings.permissionGate.openSettings}</button>}
-        <button onClick={() => void restartApp()}>{strings.permissionGate.restart}</button>
+        <button onClick={handleRestart}>{strings.permissionGate.restart}</button>
       </div>
     </div>
   );

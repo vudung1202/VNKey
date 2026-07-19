@@ -15,15 +15,6 @@ use vnkey_engine::{CodeTable, Engine, KeyEvent, KeyEventState, SmartSwitchTable,
 
 use crate::platform::mac::hotkey::DEFAULT_SWITCH_KEY_STATUS;
 
-/// Task 15: whether `settings.json` existed before this launch, captured in
-/// `lib.rs`'s `setup` (before `Settings::load()` would auto-create it) and
-/// managed as Tauri state so `commands::is_first_run` can hand it to the UI.
-/// The UI combines it with `has_openkey_data()` to decide whether to offer
-/// the OpenKey import -- once this process exits, the next launch always
-/// sees the file, so nothing needs to explicitly clear this.
-#[derive(Debug, Clone, Copy)]
-pub struct FirstRun(pub bool);
-
 /// Engine state guarded by the mutex.
 ///
 /// `sync_key` is OpenKey's `_syncKey` (`OpenKey.mm:77`): a stack of the UTF-16

@@ -37,6 +37,7 @@ export interface Settings {
   run_on_startup: boolean;
   show_ui_on_startup: boolean;
   dont_check_update: boolean;
+  first_run_offer_shown: boolean;
 
   // Convert tool
   convert_from_code: number;
