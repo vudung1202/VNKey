@@ -273,6 +273,22 @@ body {
   margin-top: auto;
 }
 
+.permission-gate {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 12px;
+}
+
+.permission-gate .window-actions {
+  justify-content: center;
+}
+
+.permission-gate-granted {
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .footer {
   display: flex;
   justify-content: flex-end;

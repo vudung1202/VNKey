@@ -93,6 +93,13 @@ export function hasOpenKeyData(): Promise<boolean> {
   return invoke("has_openkey_data");
 }
 
+// Whether `settings.json` existed before this process's launch
+// (`src-tauri/src/state.rs`'s `FirstRun`) -- `ControlPanel` ANDs this with
+// `hasOpenKeyData()` to decide whether to offer the first-run import.
+export function isFirstRun(): Promise<boolean> {
+  return invoke("is_first_run");
+}
+
 export function importOpenKeySettings(): Promise<Settings> {
   return invoke("import_openkey_settings");
 }

@@ -1,9 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { confirm } from "@tauri-apps/plugin-dialog";
 
-import { getSettings } from "../../lib/ipc";
+import { getPermissionStatus, getSettings, hasOpenKeyData, importOpenKeySettings, isFirstRun } from "../../lib/ipc";
 import { strings } from "../../lib/strings";
 import type { Settings } from "../../lib/types";
+import { PermissionGate } from "../Permission/PermissionGate";
 import { AboutTab } from "./AboutTab";
 import { Footer } from "./Footer";
 import { MacroTab } from "./MacroTab";
@@ -17,9 +19,12 @@ const TAB_KEYS: TabKey[] = ["typing", "macro", "system", "about"];
 export function ControlPanel() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [tab, setTab] = useState<TabKey>("typing");
+  const [permissionGranted, setPermissionGranted] = useState<boolean | null>(null);
+  const importOfferAsked = useRef(false);
 
   useEffect(() => {
     getSettings().then(setSettings);
+    getPermissionStatus().then(setPermissionGranted);
 
     // Every mutating IPC command persists + broadcasts `settings-changed`
     // server-side (`apply_and_broadcast`), and so does the tray/hotkey/
@@ -34,7 +39,36 @@ export function ControlPanel() {
     };
   }, []);
 
-  if (!settings) return null;
+  // Task 15 first-run OpenKey import offer: `isFirstRun()` reflects whether
+  // `settings.json` existed before THIS launch (`state::FirstRun`, captured
+  // in `lib.rs`'s `setup` before `Settings::load()` would auto-create it),
+  // so this only ever fires once. Held off until permission is confirmed
+  // granted -- the gate below takes priority, same as `should_auto_show_
+  // settings` on the Rust side.
+  useEffect(() => {
+    if (permissionGranted !== true || importOfferAsked.current) return;
+    importOfferAsked.current = true;
+    void (async () => {
+      const [firstRun, openKeyData] = await Promise.all([isFirstRun(), hasOpenKeyData()]);
+      if (!firstRun || !openKeyData) return;
+      const yes = await confirm(strings.firstRun.offer, {
+        title: strings.firstRun.title,
+        okLabel: strings.footer.yes,
+        cancelLabel: strings.footer.no,
+      });
+      if (yes) {
+        // Applies + persists + reloads the engine server-side; mirror the
+        // result into local state the same way `settings-changed` does.
+        setSettings(await importOpenKeySettings());
+      }
+    })();
+  }, [permissionGranted]);
+
+  if (permissionGranted === false) {
+    return <PermissionGate />;
+  }
+
+  if (!settings || permissionGranted === null) return null;
 
   return (
     <div className="control-panel">

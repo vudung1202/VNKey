@@ -119,11 +119,30 @@ export const strings = {
   },
 
   // `AboutViewController.m` + the about scene in `Main.storyboard`; reuses
-  // `aboutTab`'s appName/description/credit/sourceCodeUrl (same content).
+  // `aboutTab`'s appName/description/credit/sourceCodeUrl/sourceCode (same
+  // content -- `sourceCode` deliberately not duplicated here, Task 14 review).
   about: {
     homePage: "Trang chủ",
-    sourceCode: "Mã nguồn...",
     checkUpdateOnStartup: "Kiểm tra bản mới khi khởi động",
     close: "Đóng",
+  },
+
+  // Task 15: the Accessibility blocking view (`Permission/PermissionGate.tsx`).
+  // Mirrors OpenKey's `AppDelegate.m: askPermission` alert content, reworded
+  // as a full-window explainer instead of a modal `NSAlert`.
+  permissionGate: {
+    title: "Cần cấp quyền Trợ năng",
+    explain:
+      "VNKey cần quyền Trợ năng (Accessibility) để có thể gõ tiếng Việt vào các ứng dụng khác. Vui lòng cấp quyền trong System Settings, sau đó khởi động lại VNKey.",
+    granted: "Đã cấp quyền! Vui lòng khởi động lại VNKey để áp dụng.",
+    openSettings: "Mở cài đặt Trợ năng",
+    restart: "Khởi động lại VNKey",
+  },
+
+  // Task 15: the first-run "import from OpenKey?" offer (a native confirm
+  // dialog -- `footer.yes`/`footer.no` supply its Có/Không button labels).
+  firstRun: {
+    title: "Nhập dữ liệu OpenKey",
+    offer: "Phát hiện dữ liệu OpenKey. Nhập cấu hình, gõ tắt và ghi nhớ ứng dụng từ OpenKey?",
   },
 };
