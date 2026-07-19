@@ -1,0 +1,37 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="VNKey">
+  <title>VNKey</title>
+  <defs>
+    <!-- Dark app tile, top-lit so it reads as a physical surface. -->
+    <linearGradient id="tile" x1="512" y1="90" x2="512" y2="934" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#191a1e"/>
+      <stop offset="1" stop-color="#0d0e10"/>
+    </linearGradient>
+    <!-- Emerald keycap face, brighter at the top edge like a lit key. -->
+    <linearGradient id="keycap" x1="512" y1="176" x2="512" y2="848" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#43e8a9"/>
+      <stop offset="1" stop-color="#22ac80"/>
+    </linearGradient>
+    <!-- Soft top-center highlight for the pressable top face. -->
+    <radialGradient id="sheen" cx="512" cy="300" r="440" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.30"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Squircle app tile (transparent corners; macOS does not auto-mask). -->
+  <rect x="90" y="90" width="844" height="844" rx="189" fill="url(#tile)"/>
+  <rect x="90.5" y="90.5" width="843" height="843" rx="188.5" fill="none" stroke="#ffffff" stroke-opacity="0.06" stroke-width="1"/>
+
+  <!-- Keycap: base lip (slightly lower/darker) then the lit face on top. -->
+  <rect x="176" y="192" width="672" height="672" rx="150" fill="#1a8f6a"/>
+  <rect x="176" y="176" width="672" height="672" rx="150" fill="url(#keycap)"/>
+  <rect x="176" y="176" width="672" height="672" rx="150" fill="url(#sheen)"/>
+  <rect x="196" y="196" width="632" height="632" rx="132" fill="none" stroke="#0b3b2b" stroke-opacity="0.18" stroke-width="2"/>
+
+  <!-- Interlocked VN monogram, engraved dark like a keycap legend.
+       V's right tip and N's top-left leg share the vertex (577,382). -->
+  <g stroke="#08130d" stroke-width="64" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M317 382 L447 642 L577 382"/>
+    <path d="M577 642 L577 382 L707 642 L707 382"/>
+  </g>
+</svg>

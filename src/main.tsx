@@ -2,6 +2,9 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
+import "@fontsource-variable/geist/wght.css";
+import "@fontsource-variable/geist-mono/wght.css";
+
 import { About } from "./components/About/About";
 import { ControlPanel } from "./components/ControlPanel/ControlPanel";
 import { ConvertTool } from "./components/ConvertTool/ConvertTool";

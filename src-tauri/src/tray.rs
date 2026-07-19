@@ -3,11 +3,12 @@
 //! source (menu click, IPC command, hotkey, smart-switch) funnels through to
 //! keep it in sync.
 //!
-//! Icon approach: rather than shipping separate V/E icon assets and toggling
-//! them (OpenKey's `Status`/`StatusHighlighted` images), the tray keeps one
-//! static app icon and uses [`tauri::tray::TrayIcon::set_title`] to show the
-//! language state as literal "V"/"E" text next to it -- one code path instead
-//! of an icon-swap-plus-template-image one, and no extra asset files.
+//! Icon approach: the menu bar shows the language state as literal "V"/"E"
+//! text only, via [`tauri::tray::TrayIcon::set_title`] -- no image at all (no
+//! icon is set on the builder). This is a deliberate product choice: a compact
+//! text-only status item, one code path instead of OpenKey's
+//! icon-swap-plus-template-image one, and no extra asset files. The app logo
+//! lives on the Dock icon and in the About window, not here.
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -277,8 +278,9 @@ pub fn build(app: &AppHandle, settings: &Settings) -> tauri::Result<()> {
         ],
     )?;
 
+    // No `.icon(...)`: the status item is text-only ("V"/"E"), per the module
+    // doc. macOS renders an NSStatusItem with just a title button here.
     let tray = TrayIconBuilder::new()
-        .icon(app.default_window_icon().expect("bundle icon configured in tauri.conf.json").clone())
         .menu(&menu)
         .title(state.title)
         .on_menu_event(handle_menu_event)
