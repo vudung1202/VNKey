@@ -32,7 +32,7 @@ use parking_lot::Mutex;
 use tauri::AppHandle;
 
 use super::tap::TapControl;
-use super::{ffi, smart_switch};
+use super::{ffi, smart_switch, tis};
 use crate::state::{EngineCore, SharedConfig};
 
 /// Register the four NSWorkspace lifecycle observers. Must run on the main
@@ -94,6 +94,11 @@ pub fn register(
         // SAFETY: framework notification-name constant.
         add_observer(&center, unsafe { NSWorkspaceActiveSpaceDidChangeNotification }, &block);
     }
+
+    // Seed + observe the system input source on the main thread, so the tap
+    // thread reads a cached flag instead of calling TIS off-thread (which
+    // crashes on macOS 15). Runs here because `register` is already main-thread.
+    tis::install_input_source_observer(&config);
 }
 
 /// Add one block-based observer for `name` and leak the returned token so the

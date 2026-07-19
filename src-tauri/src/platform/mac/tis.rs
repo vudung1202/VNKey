@@ -23,21 +23,42 @@
 //! the way Objective-C's reference counting silently absorbs it.
 
 use core::ffi::c_void;
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 use objc2_foundation::NSString;
+
+use crate::state::SharedConfig;
 
 #[link(name = "Carbon", kind = "framework")]
 unsafe extern "C" {
     fn TISCopyCurrentKeyboardInputSource() -> *const c_void;
     fn TISGetInputSourceProperty(input_source: *const c_void, property_key: *const c_void) -> *const c_void;
     static kTISPropertyInputSourceLanguages: *const c_void;
+    /// Distributed-notification name posted when the selected keyboard input
+    /// source changes.
+    static kTISNotifySelectedKeyboardInputSourceChanged: *const c_void;
 }
+
+/// `CFNotificationCallback`: fired by CoreFoundation on the run loop of the
+/// thread that registered the observer (the main thread here).
+type CfNotificationCallback =
+    extern "C" fn(*const c_void, *mut c_void, *const c_void, *const c_void, *const c_void);
 
 #[link(name = "CoreFoundation", kind = "framework")]
 unsafe extern "C" {
     fn CFArrayGetCount(array: *const c_void) -> isize;
     fn CFArrayGetValueAtIndex(array: *const c_void, idx: isize) -> *const c_void;
     fn CFRelease(cf: *const c_void);
+    fn CFNotificationCenterGetDistributedCenter() -> *const c_void;
+    fn CFNotificationCenterAddObserver(
+        center: *const c_void,
+        observer: *const c_void,
+        callback: CfNotificationCallback,
+        name: *const c_void,
+        object: *const c_void,
+        suspension_behavior: isize,
+    );
 }
 
 /// `OpenKey.mm:703`'s language check (`![currentLanguage isLike:@"en"]`).
@@ -94,6 +115,51 @@ pub fn current_input_is_english() -> bool {
     // of the unowned `languages`/`lang_ref` derived from it.
     unsafe { CFRelease(isource) };
     result
+}
+
+/// Distributed-notification callback: refreshes the cached English flag on the
+/// main thread (where the TIS query is safe). Registered by
+/// [`install_input_source_observer`].
+extern "C" fn on_input_source_changed(
+    _center: *const c_void,
+    observer: *mut c_void,
+    _name: *const c_void,
+    _object: *const c_void,
+    _user_info: *const c_void,
+) {
+    if observer.is_null() {
+        return;
+    }
+    // SAFETY: `observer` is the `*const SharedConfig` leaked in
+    // `install_input_source_observer`; it lives for the whole process.
+    let config = unsafe { &*(observer as *const SharedConfig) };
+    config.input_is_english.store(current_input_is_english(), Ordering::Relaxed);
+}
+
+/// Seed [`SharedConfig::input_is_english`] and keep it fresh: read the current
+/// input source once, then observe the distributed input-source-change
+/// notification and re-read on each change. MUST run on the main thread -- both
+/// the initial read and every callback query TIS, which crashes off the main
+/// thread on macOS 15 (`dispatch_assert_queue` in TSM). The tap thread then
+/// only ever reads the cached atomic, never TIS.
+pub fn install_input_source_observer(config: &Arc<SharedConfig>) {
+    config.input_is_english.store(current_input_is_english(), Ordering::Relaxed);
+
+    // Leak one Arc ref as the observer pointer: the observer is never removed
+    // (it lives for the whole process, like the NSWorkspace observers).
+    let observer = Arc::into_raw(config.clone()) as *const c_void;
+    // SAFETY: distributed center handle + framework notification-name constant;
+    // the callback and the leaked observer pointer both outlive registration.
+    unsafe {
+        CFNotificationCenterAddObserver(
+            CFNotificationCenterGetDistributedCenter(),
+            observer,
+            on_input_source_changed,
+            kTISNotifySelectedKeyboardInputSourceChanged,
+            core::ptr::null(),
+            4, // kCFNotificationSuspensionBehaviorDeliverImmediately
+        );
+    }
 }
 
 #[cfg(test)]

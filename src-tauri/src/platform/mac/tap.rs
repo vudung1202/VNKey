@@ -22,12 +22,12 @@
 //!   5. only KeyDown reaches the engine (KeyUp/FlagsChanged/other pass
 //!      through);
 //!   6. engine off (`vLanguage == 0`) -> pass through. This runs BEFORE the
-//!      other-language TIS check so English mode never pays a
-//!      `TISCopyCurrentKeyboardInputSource` per key (folds Task 9's
-//!      callback-reorder review; OpenKey early-returns on `vLanguage == 0` at
-//!      `OpenKey.mm:672/684` before the other-language block at `:693`);
-//!   7. other-language passthrough (`vOtherLanguage`, `tis.rs`,
-//!      `OpenKey.mm:694-710`);
+//!      other-language check to match OpenKey's early-return on `vLanguage == 0`
+//!      at `OpenKey.mm:672/684`, ahead of the other-language block at `:693`;
+//!   7. other-language passthrough (`vOtherLanguage`, `OpenKey.mm:694-710`).
+//!      Reads the cached `SharedConfig::input_is_english` flag; the TIS query
+//!      that fills it runs on the main thread (`tis`), never here -- TSM
+//!      crashes when called off the main thread on macOS 15;
 //!   8. run the engine under the lock, snapshot its decision, drop the lock;
 //!   9. inject (lock-free) and swallow/pass per the decision.
 
@@ -44,7 +44,7 @@ use vnkey_engine::{KeyEvent, KeyEventState};
 
 use super::hotkey::HotkeyState;
 use super::inject::{self, CgSink, HookSnapshot, InjectCtx};
-use super::{ffi, hotkey, layout, quirks, smart_switch, tis};
+use super::{ffi, hotkey, layout, quirks, smart_switch};
 use crate::state::{EngineCore, SharedConfig};
 
 /// Cross-thread handle to the tap's mach port, so the main-thread sleep/wake
@@ -302,16 +302,18 @@ unsafe extern "C-unwind" fn tap_callback(
     }
 
     // 6. Engine off (`vLanguage == 0`) -> pass through. Checked BEFORE the
-    // other-language TIS query so English mode never pays a
-    // `TISCopyCurrentKeyboardInputSource` per key (Task 9 review fold; OpenKey
-    // early-returns on `vLanguage == 0` at OpenKey.mm:672/684, ahead of the
-    // other-language block at :693).
+    // other-language check to match OpenKey's early-return on `vLanguage == 0`
+    // (OpenKey.mm:672/684, ahead of the other-language block at :693).
     if !ctx.config.enabled.load(Ordering::Relaxed) {
         return event.as_ptr();
     }
 
     // 7. Other-language passthrough (`vOtherLanguage`, `OpenKey.mm:694-710`).
-    if ctx.config.other_language.load(Ordering::Relaxed) && !tis::current_input_is_english() {
+    // Reads the cached `input_is_english` flag rather than querying TIS here:
+    // the TSM input-source APIs assert the main dispatch queue on macOS 15 and
+    // crash on the tap thread, so the main-thread observer in `tis` keeps this
+    // atomic fresh (`tis::install_input_source_observer`).
+    if ctx.config.other_language.load(Ordering::Relaxed) && !ctx.config.input_is_english.load(Ordering::Relaxed) {
         return event.as_ptr();
     }
 

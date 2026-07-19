@@ -90,6 +90,13 @@ pub struct SharedConfig {
     /// `vOtherLanguage` — when on, pass every key through untouched while the
     /// system's current keyboard input source isn't English.
     pub other_language: AtomicBool,
+    /// Cached `tis::current_input_is_english()` result, refreshed on the MAIN
+    /// thread by `tis::install_input_source_observer`'s notification observer.
+    /// The tap thread reads this instead of querying TIS itself: on macOS 15
+    /// the TSM input-source APIs assert the main dispatch queue and crash
+    /// (`dispatch_assert_queue`) when called from the tap thread. Starts `true`
+    /// ("assume English / keep typing", tis.rs's inconclusive default).
+    pub input_is_english: AtomicBool,
     /// `vPerformLayoutCompat` — translate physical keycodes through the
     /// current (non-QWERTY) keyboard layout before handing them to the
     /// engine. No settings UI yet (Task 13), so this starts off.
@@ -129,6 +136,7 @@ impl SharedConfig {
             temp_off_spelling: AtomicBool::new(opts.temp_off_spelling),
             temp_off_openkey: AtomicBool::new(opts.temp_off_openkey),
             other_language: AtomicBool::new(opts.other_language),
+            input_is_english: AtomicBool::new(true),
             perform_layout_compat: AtomicBool::new(false),
             use_smart_switch_key: AtomicBool::new(opts.use_smart_switch_key),
             remember_code: AtomicBool::new(opts.remember_code),
