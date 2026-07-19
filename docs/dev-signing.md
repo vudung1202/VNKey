@@ -1,10 +1,21 @@
 # Dev code signing
 
-VNKey currently builds unsigned (ad-hoc signature). This is fine for local
-development, but a stable self-signed identity is needed once the app
-starts requesting TCC-gated permissions (Accessibility, Input Monitoring —
-see Task 8), because macOS ties those grants to a specific code signature
-and an ad-hoc signature changes on every build.
+VNKey builds unsigned (ad-hoc signature) by default, and `tauri.conf.json`
+in this repo deliberately does **not** set `signingIdentity` — ad-hoc is
+the intentional choice for the current stage of the project (see the M5
+audit task notes). This is fine for a one-off build, but ad-hoc signatures
+change on every rebuild, and macOS ties TCC-gated permission grants
+(Accessibility, which VNKey requests to intercept/inject keys — see Task 8)
+to a specific code signature. In practice that means: every time you
+`cargo build`/`npx tauri build` again, macOS forgets the Accessibility
+grant and you have to re-approve it in System Settings before VNKey can
+type again.
+
+If you're iterating locally and don't want to re-grant Accessibility after
+every rebuild, create a stable self-signed identity below and point
+`signingIdentity` at it **in your own local checkout** (do not commit that
+change — the shipped config stays ad-hoc per the current product
+decision).
 
 ## Create a self-signed "VNKey Dev" certificate
 
@@ -47,7 +58,9 @@ of falling back to an ad-hoc signature.
 
 ## Migrating to a stable identity later
 
-Task 8 (Accessibility / Input Monitoring permissions) will replace this
-local self-signed certificate with a proper Developer ID (or an
-organization-issued) signing identity, since TCC grants need to survive
-distribution outside of this machine.
+This self-signed certificate only makes Accessibility grants survive
+*your own local rebuilds*; it is not trusted by any other machine. If
+VNKey is ever distributed outside of this machine (a DMG handed to other
+users, notarization, etc.), it will need a proper Developer ID (or
+organization-issued) signing identity instead — that is a distribution
+decision for later, not something this repo configures today.
