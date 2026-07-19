@@ -1,4 +1,4 @@
-import { CheckboxRow } from "../CheckboxRow";
+import { SettingRow } from "../ui";
 import { patchSettings } from "../../lib/ipc";
 import { strings } from "../../lib/strings";
 import type { Settings } from "../../lib/types";
@@ -20,14 +20,16 @@ const FIELDS: Array<[string, keyof Settings]> = [
 export function TypingTab({ settings }: { settings: Settings }) {
   return (
     <div className="tab-panel">
-      {FIELDS.map(([label, field]) => (
-        <CheckboxRow
-          key={field}
-          label={label}
-          checked={settings[field] as boolean}
-          onChange={(checked) => void patchSettings(settings, { [field]: checked } as Partial<Settings>)}
-        />
-      ))}
+      <div className="ui-card">
+        {FIELDS.map(([label, field]) => (
+          <SettingRow
+            key={field}
+            label={label}
+            checked={settings[field] as boolean}
+            onChange={(checked) => void patchSettings(settings, { [field]: checked } as Partial<Settings>)}
+          />
+        ))}
+      </div>
     </div>
   );
 }

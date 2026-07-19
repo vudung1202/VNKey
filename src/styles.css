@@ -74,8 +74,12 @@
     --border: #e2e4e8;
     --border-strong: #d0d3d9;
 
-    --accent: #059669;
+    /* Darker emerald + red in light mode so accent text on white and white
+       text on the accent fill both clear WCAG AA 4.5:1 (the vivid dark-mode
+       values only need to pass on dark surfaces). */
+    --accent: #047857;
     --accent-contrast: #ffffff;
+    --danger: #c8262b;
 
     --warning-bg: #fff4e5;
     --warning-text: #9a5b00;
@@ -699,51 +703,64 @@ input[type="radio"] {
    keep the legacy markup coherent in the meantime)
    ============================================================================ */
 
-.top-bar {
+.cp-header {
   display: flex;
   flex-direction: column;
   gap: var(--sp-3);
-  padding: var(--sp-3) var(--sp-4);
+  padding: var(--sp-4);
   background: var(--surface);
-  border-bottom: 1px solid var(--border);
 }
-.top-bar-row {
+.cp-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.cp-field-row {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  justify-content: space-between;
   gap: var(--sp-3);
 }
-.top-bar-row > label {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
+.cp-field-row > .ui-segmented {
+  flex: 1;
+}
+.cp-field-row__label {
   color: var(--text-secondary);
 }
 
-.tab-bar {
+.cp-hotkey {
   display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+.cp-hotkey__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+.cp-chips {
+  display: flex;
+  align-items: center;
   gap: var(--sp-1);
-  padding: var(--sp-2) var(--sp-4) 0;
+}
+.cp-inline-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  cursor: pointer;
+}
+
+.cp-tabs {
+  padding: var(--sp-2) var(--sp-4) var(--sp-3);
   background: var(--surface);
   border-bottom: 1px solid var(--border);
-}
-.tab-bar button {
-  flex: 1;
-  padding: var(--sp-2) 0 var(--sp-3);
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  color: var(--text-secondary);
-  font-size: var(--fs-base);
-  cursor: pointer;
-  transition: color 120ms ease, border-color 120ms ease;
-}
-.tab-bar button:hover {
-  color: var(--text);
-}
-.tab-bar button.active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
 }
 
 .tab-content {

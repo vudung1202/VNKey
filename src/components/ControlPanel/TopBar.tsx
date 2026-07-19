@@ -1,10 +1,18 @@
 import { useEffect, useState } from "react";
 
 import { HotkeyRecorder } from "../HotkeyRecorder";
+import { Button, Segmented, Select, Toggle } from "../ui";
 import { decodeHotkey, encodeHotkey } from "../../lib/hotkey";
 import { getPermissionStatus, openAccessibilitySettings, setCodeTable, setInputType, setLanguage, setSwitchHotkey } from "../../lib/ipc";
 import { strings } from "../../lib/strings";
 import type { Settings } from "../../lib/types";
+
+const MODIFIERS: Array<{ key: "ctrl" | "opt" | "cmd" | "shift"; glyph: string; name: string }> = [
+  { key: "ctrl", glyph: "⌃", name: "Control" },
+  { key: "opt", glyph: "⌥", name: "Option" },
+  { key: "cmd", glyph: "⌘", name: "Command" },
+  { key: "shift", glyph: "⇧", name: "Shift" },
+];
 
 export function TopBar({ settings }: { settings: Settings }) {
   const [granted, setGranted] = useState<boolean | null>(null);
@@ -25,72 +33,78 @@ export function TopBar({ settings }: { settings: Settings }) {
   }
 
   return (
-    <div className="top-bar">
-      <div className="top-bar-row">
-        <label>
-          {strings.topBar.inputType}
-          <select value={settings.input_type} onChange={(e) => void setInputType(Number(e.target.value))}>
+    <header className="cp-header">
+      <div className="cp-field-row">
+        <span className="cp-field-row__label">{strings.topBar.mode}</span>
+        <Segmented
+          ariaLabel={strings.topBar.mode}
+          value={settings.language}
+          onChange={(v) => void setLanguage(v)}
+          items={[
+            { value: 1, label: strings.topBar.vietnamese, accent: true },
+            { value: 0, label: strings.topBar.english, accent: true },
+          ]}
+        />
+      </div>
+
+      <div className="cp-fields">
+        <div className="cp-field-row">
+          <span className="cp-field-row__label">{strings.topBar.inputType}</span>
+          <Select value={settings.input_type} onChange={(e) => void setInputType(Number(e.target.value))}>
             {strings.inputTypes.map((label, i) => (
               <option key={i} value={i}>
                 {label}
               </option>
             ))}
-          </select>
-        </label>
+          </Select>
+        </div>
 
-        <label>
-          {strings.topBar.codeTable}
-          <select value={settings.code_table} onChange={(e) => void setCodeTable(Number(e.target.value))}>
+        <div className="cp-field-row">
+          <span className="cp-field-row__label">{strings.topBar.codeTable}</span>
+          <Select value={settings.code_table} onChange={(e) => void setCodeTable(Number(e.target.value))}>
             {strings.codeTables.map((label, i) => (
               <option key={i} value={i}>
                 {label}
               </option>
             ))}
-          </select>
+          </Select>
+        </div>
+      </div>
+
+      <div className="cp-hotkey">
+        <div className="cp-hotkey__row">
+          <span className="cp-field-row__label">{strings.topBar.switchHotkey}</span>
+          <div className="cp-chips">
+            {MODIFIERS.map((m) => (
+              <button
+                key={m.key}
+                type="button"
+                className={`ui-chip${hotkey[m.key] ? " is-on" : ""}`}
+                aria-pressed={hotkey[m.key]}
+                aria-label={m.name}
+                onClick={() => updateHotkey({ [m.key]: !hotkey[m.key] } as Partial<typeof hotkey>)}
+              >
+                {m.glyph}
+              </button>
+            ))}
+            <HotkeyRecorder char={hotkey.char} onChange={(keycode, char) => updateHotkey({ keycode, char })} />
+          </div>
+        </div>
+
+        <label className="cp-inline-toggle">
+          <span>{strings.topBar.beep}</span>
+          <Toggle checked={hotkey.beep} onChange={(v) => updateHotkey({ beep: v })} ariaLabel={strings.topBar.beep} />
         </label>
-
-        <span className="radio-group">
-          {strings.topBar.mode}
-          <label>
-            <input type="radio" name="language" checked={settings.language === 1} onChange={() => void setLanguage(1)} />
-            {strings.topBar.vietnamese}
-          </label>
-          <label>
-            <input type="radio" name="language" checked={settings.language === 0} onChange={() => void setLanguage(0)} />
-            {strings.topBar.english}
-          </label>
-        </span>
       </div>
 
-      <div className="top-bar-row">
-        <span className="hotkey-group">
-          {strings.topBar.switchHotkey}
-          <label>
-            <input type="checkbox" checked={hotkey.ctrl} onChange={(e) => updateHotkey({ ctrl: e.target.checked })} />⌃
-          </label>
-          <label>
-            <input type="checkbox" checked={hotkey.opt} onChange={(e) => updateHotkey({ opt: e.target.checked })} />⌥
-          </label>
-          <label>
-            <input type="checkbox" checked={hotkey.cmd} onChange={(e) => updateHotkey({ cmd: e.target.checked })} />⌘
-          </label>
-          <label>
-            <input type="checkbox" checked={hotkey.shift} onChange={(e) => updateHotkey({ shift: e.target.checked })} />⇧
-          </label>
-          <HotkeyRecorder char={hotkey.char} onChange={(keycode, char) => updateHotkey({ keycode, char })} />
-          <label>
-            <input type="checkbox" checked={hotkey.beep} onChange={(e) => updateHotkey({ beep: e.target.checked })} />
-            {strings.topBar.beep}
-          </label>
-        </span>
-
-        {granted === false && (
-          <span className="permission-warning">
-            {strings.topBar.permissionMissing}
-            <button onClick={() => void openAccessibilitySettings()}>{strings.topBar.grantPermission}</button>
-          </span>
-        )}
-      </div>
-    </div>
+      {granted === false && (
+        <div className="ui-banner ui-banner--warning">
+          <span>{strings.topBar.permissionMissing}</span>
+          <Button variant="secondary" onClick={() => void openAccessibilitySettings()} style={{ marginLeft: "auto" }}>
+            {strings.topBar.grantPermission}
+          </Button>
+        </div>
+      )}
+    </header>
   );
 }

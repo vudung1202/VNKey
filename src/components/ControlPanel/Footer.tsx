@@ -1,6 +1,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { confirm } from "@tauri-apps/plugin-dialog";
 
+import { Button } from "../ui";
 import { quitApp, restoreDefaultSettings } from "../../lib/ipc";
 import { strings } from "../../lib/strings";
 
@@ -19,10 +20,16 @@ async function handleRestoreDefault() {
 export function Footer() {
   return (
     <div className="footer">
-      <button onClick={() => void getCurrentWindow().hide()}>{strings.footer.ok}</button>
-      <button onClick={() => void handleRestoreDefault()}>{strings.footer.restoreDefault}</button>
+      <Button variant="primary" onClick={() => void getCurrentWindow().hide()}>
+        {strings.footer.ok}
+      </Button>
+      <Button variant="secondary" onClick={() => void handleRestoreDefault()}>
+        {strings.footer.restoreDefault}
+      </Button>
       {/* Mirrors OpenKey's `onTerminateApp`: quits directly, no confirmation. */}
-      <button onClick={() => void quitApp()}>{strings.footer.quit}</button>
+      <Button variant="danger" onClick={() => void quitApp()}>
+        {strings.footer.quit}
+      </Button>
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { confirm } from "@tauri-apps/plugin-dialog";
 import { getPermissionStatus, getSettings, hasOpenKeyData, importOpenKeySettings, markFirstRunOfferShown } from "../../lib/ipc";
 import { strings } from "../../lib/strings";
 import type { Settings } from "../../lib/types";
+import { Segmented } from "../ui";
 import { PermissionGate } from "../Permission/PermissionGate";
 import { AboutTab } from "./AboutTab";
 import { Footer } from "./Footer";
@@ -85,13 +86,15 @@ export function ControlPanel() {
     <div className="control-panel">
       <TopBar settings={settings} />
 
-      <nav className="tab-bar">
-        {TAB_KEYS.map((key) => (
-          <button key={key} className={key === tab ? "active" : ""} onClick={() => setTab(key)}>
-            {strings.tabs[key]}
-          </button>
-        ))}
-      </nav>
+      <div className="cp-tabs">
+        <Segmented
+          full
+          ariaLabel="Tab"
+          value={tab}
+          onChange={setTab}
+          items={TAB_KEYS.map((key) => ({ value: key, label: strings.tabs[key] }))}
+        />
+      </div>
 
       <div className="tab-content">
         {tab === "typing" && <TypingTab settings={settings} />}

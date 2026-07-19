@@ -44,7 +44,7 @@ export function HotkeyRecorder({
 
   return (
     <input
-      className="hotkey-recorder"
+      className="ui-kbd"
       type="text"
       readOnly
       value={keyDisplayText(char)}
