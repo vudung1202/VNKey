@@ -143,6 +143,52 @@ pub(crate) fn overlay_live_config(mut settings: Settings, config: &SharedConfig)
     settings
 }
 
+/// Render the menu-bar letter as a bold, larger, vertically-centered title.
+///
+/// `tray-icon` only sets a plain, regular-weight title, and a plain title in a
+/// bigger font sits too high: a capital has no descender, so centering it in
+/// the line box leaves the glyph near the top of the bar. This sets an
+/// attributed title -- a 19pt bold system font plus a negative baseline offset
+/// that nudges the glyph back down to the optical center.
+///
+/// `set_title` would overwrite the attributed title, so [`apply_tray_state`]
+/// calls this on every change instead of `set_title` (and `build` schedules an
+/// initial call).
+///
+/// The AppKit work runs on the main thread via `with_inner_tray_icon`, which
+/// blocks until it runs -- so callers must already be on a live event loop
+/// (`apply_tray_state`), never during `setup` (see the scheduled call below).
+#[cfg(target_os = "macos")]
+fn set_tray_title(tray: &tauri::tray::TrayIcon, letter: &'static str) {
+    use objc2::MainThreadMarker;
+    use objc2::runtime::AnyObject;
+    use objc2_app_kit::{NSBaselineOffsetAttributeName, NSFont, NSFontAttributeName};
+    use objc2_foundation::{NSAttributedString, NSDictionary, NSNumber, NSString};
+
+    let _ = tray.with_inner_tray_icon(move |inner| {
+        let Some(mtm) = MainThreadMarker::new() else { return };
+        let Some(item) = inner.ns_status_item() else { return };
+        // Fixed width so the item (and everything left of it) doesn't shift
+        // when the letter toggles between the narrower "V" and wider "E".
+        item.setLength(26.0);
+        let Some(button) = item.button(mtm) else { return };
+
+        let font = NSFont::boldSystemFontOfSize(19.0);
+        let offset = NSNumber::numberWithDouble(-1.5);
+        let font_obj: &AnyObject = &font;
+        let offset_obj: &AnyObject = &offset;
+        // The attribute-name constants are extern statics (unsafe to read).
+        let (font_key, baseline_key) = unsafe { (NSFontAttributeName, NSBaselineOffsetAttributeName) };
+        let attrs: objc2::rc::Retained<NSDictionary<NSString, AnyObject>> =
+            NSDictionary::from_slices(&[font_key, baseline_key], &[font_obj, offset_obj]);
+
+        let title = NSString::from_str(letter);
+        let attributed =
+            unsafe { NSAttributedString::initWithString_attributes(mtm.alloc(), &title, Some(&attrs)) };
+        button.setAttributedTitle(&attributed);
+    });
+}
+
 /// Build the 15-item menu and tray icon and manage the handles
 /// [`apply_tray_state`] needs. Called once from `setup`.
 pub fn build(app: &AppHandle, settings: &Settings) -> tauri::Result<()> {
@@ -286,6 +332,14 @@ pub fn build(app: &AppHandle, settings: &Settings) -> tauri::Result<()> {
         .on_menu_event(handle_menu_event)
         .build(app)?;
 
+    // Style the initial "V"/"E" once the loop is live (see `set_tray_title`).
+    #[cfg(target_os = "macos")]
+    {
+        let tray = tray.clone();
+        let letter = state.title;
+        let _ = app.run_on_main_thread(move || set_tray_title(&tray, letter));
+    }
+
     app.manage(TrayHandles {
         tray,
         toggle_language,
@@ -320,6 +374,9 @@ pub(crate) fn apply_tray_state(app: &AppHandle, settings: &Settings) {
     let Some(handles) = app.try_state::<TrayHandles>() else { return };
     let state = compute_tray_state(settings);
 
+    #[cfg(target_os = "macos")]
+    set_tray_title(&handles.tray, state.title);
+    #[cfg(not(target_os = "macos"))]
     let _ = handles.tray.set_title(Some(state.title));
     let _ = handles.toggle_language.set_checked(state.language_checked);
 
