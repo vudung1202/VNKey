@@ -35,7 +35,7 @@ export const strings = {
     useSmartSwitchKey: "Chuyển chế độ thông minh",
     upperCaseFirstChar: "Viết Hoa chữ cái đầu câu",
     rememberCode: "Tự ghi nhớ bảng mã theo ứng dụng",
-    tempOffOpenKey: "Tạm tắt OpenKey bằng phím ⌘",
+    tempOffOpenKey: "Tạm tắt VNKey bằng phím ⌘",
     otherLanguage: "Tắt tiếng Việt khi bộ gõ hệ thống khác tiếng Anh",
   },
 

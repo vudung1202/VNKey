@@ -5,9 +5,8 @@
 VNKey là bộ gõ tiếng Việt cho macOS, viết lại từ
 [OpenKey](https://github.com/tuyenvm/OpenKey) (tác giả Mai Vũ Tuyên) bằng
 Rust + [Tauri](https://tauri.app). VNKey giữ nguyên logic gõ và các bảng mã
-của OpenKey (đã kiểm chứng bit-exact qua differential testing so với bản
-C++ gốc) nhưng thay toàn bộ phần nền tảng: engine thuần Rust (không FFI, không
-C++), tầng macOS dùng `CGEventTap` viết bằng Rust/objc2, và giao diện
+của OpenKey nhưng thay toàn bộ phần nền tảng: engine thuần Rust (không FFI,
+không C++), tầng macOS dùng `CGEventTap` viết bằng Rust/objc2, và giao diện
 Tauri + React/TypeScript thay cho AppKit/Storyboard.
 
 VNKey là **derivative work** của OpenKey (GPL-3.0) nên cũng phân phối theo
@@ -19,16 +18,14 @@ tiết ghi công.
 
 ## English summary
 
-VNKey is a Rust + Tauri rewrite of the OpenKey Vietnamese IME for macOS.
-The typing engine is pure Rust and has been differential-tested against the
-original C++ engine across hundreds of thousands of keystroke sequences (0
-divergences). The macOS integration (key interception/injection, hotkeys,
-smart per-app switching, sleep/wake handling) is written directly against
+VNKey is a Rust + Tauri rewrite of the OpenKey Vietnamese IME for macOS. The
+typing engine is a pure-Rust port (no FFI, no C++) covered by a golden test
+suite. The macOS integration (key interception/injection, hotkeys, smart
+per-app switching, sleep/wake handling) is written directly against
 AppKit/CoreGraphics via `objc2`, and the UI (Control Panel, macro editor,
-convert tool, About) is a Tauri v2 + React/TypeScript app. Licensed
-GPL-3.0 as a derivative of OpenKey. See the sections below (in Vietnamese)
-for build instructions, the Accessibility permission grant, and the test
-suite.
+convert tool, About) is a Tauri v2 + React/TypeScript app. Licensed GPL-3.0
+as a derivative of OpenKey. See the sections below (in Vietnamese) for build
+instructions, the Accessibility permission grant, and the test suite.
 
 ## Kiến trúc
 
@@ -36,16 +33,12 @@ suite.
 crates/vnkey-engine/   engine thuần Rust: bảng mã, xử lý phím, chính tả,
                        gõ tắt (macro), smart-switch, chuyển mã.
                        Không phụ thuộc Tauri/macOS -- test được độc lập.
-crates/openkey-oracle/ FFI wrapper quanh mã nguồn C++ gốc của OpenKey, chỉ
-                       dùng làm oracle cho differential testing (không
-                       build vào app).
 src-tauri/src/         tầng macOS + Tauri:
   platform/mac/          CGEventTap bắt/inject phím, hotkey, TIS
                           (other-language), quan sát vòng đời app
                           (sleep/wake, đổi app/Space), smart-switch cache.
-  settings/               settings.json + macros.bin + smart_switch.bin,
-                          import từ OpenKey (NSUserDefaults).
-  tray.rs, commands.rs,   tray 15 mục, IPC (~23 lệnh), pasteboard, events.
+  settings/               settings.json + macros.bin + smart_switch.bin.
+  tray.rs, commands.rs,   tray 15 mục, IPC, pasteboard, events.
   pasteboard.rs
 src/                   UI React/TypeScript (Bảng điều khiển, Gõ tắt,
                        Công cụ chuyển mã, Giới thiệu), route theo cửa sổ
@@ -54,8 +47,8 @@ src/                   UI React/TypeScript (Bảng điều khiển, Gõ tắt,
 
 Engine (`vnkey-engine`) không biết gì về Tauri hay macOS; toàn bộ phần nền
 tảng nằm trong `src-tauri`. Đây là ranh giới quan trọng nhất của kiến trúc:
-engine có thể test độc lập bằng differential testing so với oracle C++,
-tầng macOS chỉ test được bằng unit test (mock) + kiểm tay.
+engine test được độc lập (golden + unit test), tầng macOS chỉ test được bằng
+unit test (mock) + kiểm tay.
 
 ## Build từ nguồn
 
@@ -132,21 +125,6 @@ Nếu muốn quyền được nhớ qua các lần build lại (khi phát triể
 `signingIdentity`** (dùng ad-hoc) -- đây là lựa chọn có chủ đích cho giai
 đoạn hiện tại, chưa cấu hình sẵn trong `tauri.conf.json`.
 
-## Import cấu hình từ OpenKey
-
-Nếu máy bạn từng cài OpenKey, VNKey có thể đọc cấu hình cũ
-(`NSUserDefaults` domain `com.tuyenmai.openkey`) và chuyển sang VNKey:
-
-- **Tự động:** lần đầu mở VNKey (sau khi đã cấp quyền Accessibility), nếu
-  phát hiện có dữ liệu OpenKey và chưa từng hỏi trước đó, VNKey sẽ đề nghị
-  import ngay trên Bảng điều khiển.
-- **Thủ công:** có thể trigger lại qua nút import trong Bảng điều khiển
-  bất cứ lúc nào (lệnh IPC `import_openkey_settings` / `has_openkey_data`).
-
-Import chuyển: kiểu gõ, bảng mã, các tùy chọn (chính tả, gõ tắt,
-smart-switch, hotkey...), và dữ liệu macro/smart-switch nếu đọc được từ
-blob cũ.
-
 ## Tính năng
 
 - **4 kiểu gõ:** Telex, VNI, Simple Telex 1, Simple Telex 2.
@@ -166,8 +144,9 @@ blob cũ.
   khác tiếng Anh (other-language).
 - **Công cụ chuyển mã:** chuyển đổi giữa 5 bảng mã, kèm chuyển hoa/thường
   và bỏ dấu; có phím tắt chuyển mã nhanh nội dung Clipboard.
+- **Giao diện:** sáng/tối (theo hệ thống hoặc tự chọn trong tab Hệ thống).
 - **Sửa lỗi riêng cho từng ứng dụng:** Chrome/Chromium, Terminal,
-  Spotlight, Excel/Sublime (theo danh sách quirk kế thừa từ OpenKey).
+  Spotlight, Excel/Sublime (theo danh sách quirk per-app).
 - **Tray:** menu 15 mục (bật/tắt, kiểu gõ, bảng mã, công cụ chuyển mã, mở
   Bảng điều khiển/Gõ tắt/Giới thiệu, thoát...).
 
@@ -177,20 +156,9 @@ blob cũ.
 cargo test --workspace
 ```
 
-Chạy toàn bộ test: unit test engine + macOS platform layer, và quan trọng
-nhất là bộ **differential test** so sánh `vnkey-engine` (Rust) với
-`openkey-oracle` (FFI wrapper quanh C++ gốc của OpenKey) trên hàng trăm
-nghìn chuỗi phím ngẫu nhiên (sinh bằng `proptest`) cùng một tập golden
-case cố định. Mỗi chuỗi phím được gõ song song vào cả hai engine và so
-từng ký tự/trạng thái kết quả -- lệch một ký tự cũng fail. Đây là cách xác
-nhận engine Rust *bit-exact* với hành vi gốc mà không cần đọc lại tay toàn
-bộ `Engine.cpp`.
-
-Chạy một đợt differential lớn hơn mặc định (vd trước khi release):
-
-```sh
-PROPTEST_CASES=50000 cargo test -p vnkey-engine --release
-```
+Chạy toàn bộ test: golden test cho engine (các chuỗi phím mẫu ra đúng kết
+quả kỳ vọng cho cả 4 kiểu gõ + 5 bảng mã + macro/smart-switch/chuyển mã) và
+unit test cho tầng macOS.
 
 Kiểm tra thêm:
 
@@ -200,10 +168,9 @@ npm run build                                            # typecheck + build UI
 ```
 
 Phần tầng macOS (CGEventTap, injection, hotkey thật, smart-switch qua đổi
-app thật...) không thể differential-test tự động vì phụ thuộc vào
-`AppKit`/quyền hệ thống -- xem
-[docs/PARITY-CHECKLIST.md](./docs/PARITY-CHECKLIST.md) để tự kiểm tay so
-với OpenKey.
+app thật...) không thể test tự động vì phụ thuộc vào `AppKit`/quyền hệ
+thống -- xem [docs/PARITY-CHECKLIST.md](./docs/PARITY-CHECKLIST.md) để tự
+kiểm tay.
 
 ## License
 
