@@ -1,12 +1,10 @@
 //! Key-classification predicates.
 //!
-//! Ported verbatim from the C++ macros in `DataType.h:130-154`
-//! (`IS_CONSONANT`, `IS_SPECIALKEY`, `IS_QUICK_TELEX_KEY`, `IS_NUMBER_KEY`)
-//! and `Engine.cpp:41-55` (`IS_KEY_S/F/R/X/J/W/D/Z/DOUBLE`, `IS_MARK_KEY`,
-//! `IS_BRACKET_KEY`). Each C++ macro reads the `vInputType` global; here the
-//! input type is passed explicitly.
+//! These predicates classify keys for the Vietnamese transform. The original
+//! C++ macros read the input-type global; here the input type is passed
+//! explicitly.
 //!
-//! `ProcessingChar` column order (`Engine.cpp:34-39`): S F R X J A O E W D Z.
+//! `ProcessingChar` column order: S F R X J A O E W D Z.
 
 use crate::data::InputType;
 use crate::keys::*;
@@ -17,37 +15,29 @@ fn pc(input_type: InputType, col: usize) -> u16 {
     PROCESSING_CHAR[input_type as usize][col]
 }
 
-/// `Engine.cpp:47 IS_KEY_S`.
 pub(crate) fn is_key_s(input_type: InputType, key: u16) -> bool {
     pc(input_type, 0) == key
 }
-/// `Engine.cpp:48 IS_KEY_F`.
 pub(crate) fn is_key_f(input_type: InputType, key: u16) -> bool {
     pc(input_type, 1) == key
 }
-/// `Engine.cpp:49 IS_KEY_R`.
 pub(crate) fn is_key_r(input_type: InputType, key: u16) -> bool {
     pc(input_type, 2) == key
 }
-/// `Engine.cpp:50 IS_KEY_X`.
 pub(crate) fn is_key_x(input_type: InputType, key: u16) -> bool {
     pc(input_type, 3) == key
 }
-/// `Engine.cpp:51 IS_KEY_J`.
 pub(crate) fn is_key_j(input_type: InputType, key: u16) -> bool {
     pc(input_type, 4) == key
 }
-/// `Engine.cpp:42 IS_KEY_D`.
 pub(crate) fn is_key_d(input_type: InputType, key: u16) -> bool {
     pc(input_type, 9) == key
 }
-/// `Engine.cpp:41 IS_KEY_Z`.
 pub(crate) fn is_key_z(input_type: InputType, key: u16) -> bool {
     pc(input_type, 10) == key
 }
 
-/// `Engine.cpp:43-44 IS_KEY_W`. Non-VNI: column 8. VNI: column 8 or 7
-/// (KEY_8 or KEY_7).
+/// Non-VNI: column 8. VNI: column 8 or 7 (KEY_8 or KEY_7).
 pub(crate) fn is_key_w(input_type: InputType, key: u16) -> bool {
     if input_type != InputType::Vni {
         pc(input_type, 8) == key
@@ -56,8 +46,7 @@ pub(crate) fn is_key_w(input_type: InputType, key: u16) -> bool {
     }
 }
 
-/// `Engine.cpp:45-46 IS_KEY_DOUBLE`. Non-VNI: column 5, 6 or 7 (A/O/E for
-/// Telex). VNI: column 6 (KEY_6).
+/// Non-VNI: column 5, 6 or 7 (A/O/E for Telex). VNI: column 6 (KEY_6).
 pub(crate) fn is_key_double(input_type: InputType, key: u16) -> bool {
     if input_type != InputType::Vni {
         pc(input_type, 5) == key || pc(input_type, 6) == key || pc(input_type, 7) == key
@@ -66,8 +55,8 @@ pub(crate) fn is_key_double(input_type: InputType, key: u16) -> bool {
     }
 }
 
-/// `Engine.cpp:53-54 IS_MARK_KEY`. Non-VNI uses the literal S/F/R/J/X keys;
-/// VNI uses digits 1/2/3/5/4 (verbatim, incl. the source's 1,2,3,5,4 order).
+/// Non-VNI uses the literal S/F/R/J/X keys; VNI uses digits 1/2/3/5/4
+/// (verbatim, incl. the source's 1,2,3,5,4 order).
 pub(crate) fn is_mark_key(input_type: InputType, key_code: u16) -> bool {
     if input_type != InputType::Vni {
         key_code == KEY_S || key_code == KEY_F || key_code == KEY_R || key_code == KEY_J
@@ -78,12 +67,11 @@ pub(crate) fn is_mark_key(input_type: InputType, key_code: u16) -> bool {
     }
 }
 
-/// `Engine.cpp:55 IS_BRACKET_KEY`.
 pub(crate) fn is_bracket_key(key: u16) -> bool {
     key == KEY_LEFT_BRACKET || key == KEY_RIGHT_BRACKET
 }
 
-/// `DataType.h:130 IS_CONSONANT` -- everything that is not a base vowel.
+/// Everything that is not a base vowel.
 pub(crate) fn is_consonant(key_code: u16) -> bool {
     !(key_code == KEY_A
         || key_code == KEY_E
@@ -93,8 +81,8 @@ pub(crate) fn is_consonant(key_code: u16) -> bool {
         || key_code == KEY_O)
 }
 
-/// `DataType.h:133-146 IS_SPECIALKEY` -- whether a key participates in the
-/// Vietnamese transform for the given input type.
+/// Whether a key participates in the Vietnamese transform for the given
+/// input type.
 pub(crate) fn is_special_key(input_type: InputType, key_code: u16) -> bool {
     match input_type {
         InputType::Telex => {
@@ -141,7 +129,6 @@ pub(crate) fn is_special_key(input_type: InputType, key_code: u16) -> bool {
     }
 }
 
-/// `DataType.h:154 IS_NUMBER_KEY`.
 pub(crate) fn is_number_key(code: u16) -> bool {
     code == KEY_1
         || code == KEY_2
@@ -155,9 +142,8 @@ pub(crate) fn is_number_key(code: u16) -> bool {
         || code == KEY_0
 }
 
-/// `DataType.h:151-152 IS_QUICK_TELEX_KEY`. `prev_char` is `CHR(index-1)`
-/// (only read when `index > 0`, exactly as the C++ macro's `_index > 0`
-/// short-circuit guarantees).
+/// `prev_char` is `CHR(index-1)` (only read when `index > 0`, exactly as the
+/// C++ macro's `_index > 0` short-circuit guarantees).
 pub(crate) fn is_quick_telex_key(index: i32, prev_char: u16, code: u16) -> bool {
     index > 0
         && (code == KEY_C

@@ -1,7 +1,6 @@
-//! The typing engine: the normal-key branch of `vKeyHandleEvent`
-//! (`Engine.cpp:1314-1552`) plus `handleMainKey` (`Engine.cpp:1055-1193`),
-//! `insertKey`/`insertState`, `findAndCalculateVowel`, `handleQuickTelex`,
-//! the standalone-`[`/`]`/`w` helpers and `upperCaseFirstCharacter`.
+//! The typing engine: the normal-key path plus main-key handling, key/state
+//! insertion, vowel finding, quick-telex, the standalone-`[`/`]`/`w` helpers
+//! and upper-casing the first character.
 //!
 //! Every C++ file-scope global becomes a private `Engine` field; the scratch
 //! loop variables `i, ii, iii, j, k, kk, l` become locals. All C++ index
@@ -10,11 +9,11 @@
 //! load-bearing).
 //!
 //! Scope: break-code / SPACE / DELETE (Task 5) plus the normal-key path
-//! (Task 4). Macro lookup (`isMacroBreakCode`/`findMacro`), `vEnglishMode`
-//! and the temp-off-engine/spelling session methods were added in Task 6/7.
+//! (Task 4). Macro lookup, English mode, and the temp-off-engine/spelling
+//! session methods were added in Task 6/7.
 //!
 //! Clippy lints are allowed where "simplifying" would break the 1:1 mapping to
-//! `Engine.cpp`: `int_plus_one` keeps the C++ `x - 1 >= 0` index guards
+//! the source: `int_plus_one` keeps the C++ `x - 1 >= 0` index guards
 //! verbatim, and `collapsible_if` keeps the C++ nested-`if` gates intact.
 #![allow(clippy::int_plus_one, clippy::collapsible_if)]
 
@@ -39,10 +38,9 @@ use crate::vietnamese::{
 
 pub struct Engine {
     pub(crate) opts: EngineOptions,
-    /// `vCheckSpelling` -- an option, but mutated at runtime by the Ctrl
-    /// spell-toggle; kept separate from `opts.check_spelling`.
+    /// An option, but mutated at runtime by the Ctrl spell-toggle; kept
+    /// separate from `opts.check_spelling`.
     pub(crate) spell_check_on: bool,
-    /// `_useSpellCheckingBefore`.
     pub(crate) use_spell_checking_before: bool,
 
     pub(crate) buf: Buffer,
@@ -52,12 +50,11 @@ pub struct Engine {
     pub(crate) is_corect: bool,
     pub(crate) is_changed: bool,
     pub(crate) vowel_count: i32,
-    /// `vowelStartIndex` (VSI).
+    /// Vowel start index (VSI).
     pub(crate) vsi: i32,
-    /// `vowelEndIndex` (VEI).
+    /// Vowel end index (VEI).
     pub(crate) vei: i32,
-    /// `vowelWillSetMark` (VWSM) -- the same variable the C++ `VWSM` macro
-    /// aliases; `insertMark` may override it to `VEI`.
+    /// Vowel-will-set-mark index (VWSM); `insert_mark` may override it to VEI.
     pub(crate) vwsm: i32,
     pub(crate) is_restored_w: bool,
     pub(crate) key_for_aeo: u16,
@@ -66,29 +63,29 @@ pub struct Engine {
     pub(crate) space_count: i32,
     pub(crate) upper_case_status: u8,
     pub(crate) special_char: Vec<u32>,
-    /// `Engine.cpp:86 _typingStates` -- stack of saved words/space-runs/
-    /// special-char runs, used to restore across word boundaries on DELETE.
+    /// Stack of saved words/space-runs/special-char runs, used to restore
+    /// across word boundaries on DELETE.
     pub(crate) typing_states: Vec<Vec<u32>>,
     pub(crate) will_temp_off_engine: bool,
     pub(crate) has_handled_macro: bool,
     pub(crate) has_handle_quick_consonant: bool,
 
-    // checkSpelling scratch (Engine.cpp:171-174)
+    // check_spelling scratch
     pub(crate) spelling_ok: bool,
     pub(crate) spelling_flag: bool,
     pub(crate) spelling_vowel_ok: bool,
     pub(crate) spelling_end_index: i32,
 
-    /// `Macro.cpp`'s file-scope `macroMap` (plus its active `vCodeTable`),
-    /// consulted by `find_macro` and managed via `macro_*` accessors. Kept in
-    /// sync with `opts.code_table` by `new`/`set_options`.
+    /// The owned macro table (plus its active code table), consulted by
+    /// `find_macro` and managed via `macro_*` accessors. Kept in sync with
+    /// `opts.code_table` by `new`/`set_options`.
     pub(crate) macros: MacroTable,
 
     pub(crate) hook: HookState,
 }
 
 impl Engine {
-    /// Mirrors the oracle's `ok_reset`: apply options + a fresh engine.
+    /// Apply options and start a fresh engine.
     pub fn new(opts: EngineOptions) -> Self {
         Engine {
             opts,
@@ -124,14 +121,12 @@ impl Engine {
         }
     }
 
-    /// Re-apply options (mirrors the oracle shim's `applyOptions`): update
-    /// `vCheckSpelling` from the new options, leave the typing buffer intact.
+    /// Re-apply options: update the runtime spelling flag from the new options,
+    /// leave the typing buffer intact.
     ///
     /// Changing `code_table` also runs `MacroTable::on_table_code_change` (the
-    /// host would call `onTableCodeChange` after switching tables, so a loaded
-    /// macro table's content codes track the active table). The raw oracle
-    /// `ok_set_options` does not model that host call, but no differential test
-    /// changes `code_table` mid-session via `set_options`.
+    /// host would re-encode after switching tables, so a loaded macro table's
+    /// content codes track the active table).
     pub fn set_options(&mut self, opts: EngineOptions) {
         if self.macros.code_table() != opts.code_table {
             self.macros.on_table_code_change(opts.code_table);
@@ -140,11 +135,10 @@ impl Engine {
         self.spell_check_on = opts.check_spelling;
     }
 
-    /// Switch the active code table (host `onCodeTableChanged` ->
-    /// `OnTableCodeChange`). Re-encodes the macro table's content codes for
-    /// the new table (the same `onTableCodeChange` host call `set_options`
-    /// models) and updates the option. Used by the smart-switch remember-code
-    /// branch to restore a per-app code table.
+    /// Switch the active code table. Re-encodes the macro table's content codes
+    /// for the new table (the same re-encode `set_options` models) and updates
+    /// the option. Used by the smart-switch remember-code branch to restore a
+    /// per-app code table.
     pub fn set_code_table(&mut self, code_table: CodeTable) {
         if self.opts.code_table != code_table {
             self.macros.on_table_code_change(code_table);
@@ -174,22 +168,21 @@ impl Engine {
         self.macros = table;
     }
 
-    /// `addMacro` on the owned table, under the engine's active code table.
+    /// Add a macro to the owned table, under the engine's active code table.
     pub fn macro_add(&mut self, text: &str, content: &str) -> bool {
         self.macros.add(text, content, self.opts.code_table)
     }
 
-    /// `deleteMacro` on the owned table.
+    /// Delete a macro from the owned table.
     pub fn macro_delete(&mut self, text: &str) -> bool {
         self.macros.delete(text)
     }
 
-    /// `getAllMacro` on the owned table -- `(text, content)` in save order.
+    /// All macros on the owned table -- `(text, content)` in save order.
     pub fn macro_list(&self) -> Vec<(String, String)> {
         self.macros.all()
     }
 
-    /// `Engine.cpp:457-466 startNewSession`.
     pub fn start_new_session(&mut self) {
         self.buf.index = 0;
         self.hook.backspace_count = 0;
@@ -201,68 +194,31 @@ impl Engine {
         self.buf.long_word_helper.clear();
     }
 
-    /// `Engine.cpp:1223-1227 vTempOffSpellChecking`. Only flips the *current*
-    /// spelling flag (`spell_check_on` == C++'s mutable `vCheckSpelling`) when
-    /// `use_spell_checking_before` (C++'s `_useSpellCheckingBefore`, the
-    /// "original" value saved by `reset_check_spelling`) is set -- so calling
-    /// this repeatedly toggles the runtime flag on/off around that saved
-    /// baseline instead of unconditionally flipping it.
+    /// Only flips the *current* spelling flag (`spell_check_on`) when
+    /// `use_spell_checking_before` (the "original" value saved by
+    /// `reset_check_spelling`) is set -- so calling this repeatedly toggles the
+    /// runtime flag on/off around that saved baseline instead of
+    /// unconditionally flipping it.
     pub fn temp_off_spell_checking(&mut self) {
         if self.use_spell_checking_before {
             self.spell_check_on = !self.spell_check_on;
         }
     }
 
-    /// `Engine.cpp:1229-1231 vSetCheckSpelling`. Snapshots the current
-    /// runtime spelling flag as the new "original" baseline that
-    /// `temp_off_spell_checking` toggles around.
+    /// Snapshots the current runtime spelling flag as the new "original"
+    /// baseline that `temp_off_spell_checking` toggles around.
     pub fn reset_check_spelling(&mut self) {
         self.use_spell_checking_before = self.spell_check_on;
     }
 
-    /// `Engine.cpp:1233-1235 vTempOffEngine`.
     pub fn temp_off_engine(&mut self, off: bool) {
         self.will_temp_off_engine = off;
     }
 
-    /// `Engine.cpp:65 GET` -- `getCharacterCode` against the active table.
+    /// `get_character_code` against the active table.
     #[inline]
     pub(crate) fn get(&self, data: u32) -> u32 {
         get_character_code(self.opts.code_table, data)
-    }
-
-    /// Test-only (differential harness): true if any `hook.char_data[0..
-    /// new_char_count]` cell from the most recently completed `handle_event`
-    /// call was sourced from a `GET`/`getCharacterCode` call that would read
-    /// its C++ `_codeTable` row out of bounds -- genuine C++ UB (see
-    /// `charset::cpp_index_would_be_oob`'s doc comment), not
-    /// reproducible/comparable behavior across the two engines.
-    ///
-    /// Every `char_data` writer in this crate that calls `self.get(...)`
-    /// (`insert_mark`/`insert_d`/`insert_aoe`/`insert_w`/`remove_mark`/
-    /// `check_grammar` in `marks.rs`, `check_quick_consonant` and friends
-    /// here) follows the same pattern: the last write to `char_data[j]`
-    /// reads `buf.word[buf.index - 1 - j]` in its final, post-mutation
-    /// state. That mapping is reused generically here instead of threading
-    /// an OOB check through every call site.
-    #[doc(hidden)]
-    pub fn debug_char_data_may_be_cpp_oob(&self) -> bool {
-        let n = self.hook.new_char_count as i32;
-        let mut j = 0;
-        while j < n {
-            let raw_index = self.buf.index - 1 - j;
-            if raw_index >= 0
-                && (raw_index as usize) < MAX_BUFF
-                && crate::charset::cpp_index_would_be_oob(
-                    self.opts.code_table,
-                    self.buf.word[raw_index as usize],
-                )
-            {
-                return true;
-            }
-            j += 1;
-        }
-        false
     }
 
     #[inline]
@@ -270,7 +226,6 @@ impl Engine {
         self.opts.input_type
     }
 
-    /// `Engine.cpp:145-154 isWordBreak`.
     fn is_word_break(event: KeyEvent, data: u16) -> bool {
         if event == KeyEvent::Mouse {
             return true;
@@ -278,24 +233,21 @@ impl Engine {
         BREAK_CODE.iter().any(|&b| b as u16 == data)
     }
 
-    /// `Engine.cpp:156-163 isMacroBreakCode`.
     fn is_macro_break_code(data: u16) -> bool {
         MACRO_BREAK_CODE.iter().any(|&b| b as u16 == data)
     }
 
-    /// `Engine.cpp:1344 _isCharKeyCode`'s membership test against
-    /// `_charKeyCode` (`Engine.cpp:15-19`).
+    /// Membership test against `CHAR_KEY_CODE`.
     fn is_char_key_code(data: u16) -> bool {
         CHAR_KEY_CODE.iter().any(|&b| b as u16 == data)
     }
 
-    /// `Engine.cpp: findMacro(hMacroKey, hMacroData)` -- look the accumulated
-    /// `hook.macro_key` up in the owned `MacroTable` and, on a hit, fill
-    /// `hook.macro_data` with the content codes and return true. On a miss,
-    /// leaves `hook.macro_data` untouched (mirrors C++: `findMacro` only
-    /// clears/assigns `macroContentCode` on a match). The break/SPACE/english-
-    /// mode call sites set `hook.code = ReplaceMacro` /
-    /// `hook.backspace_count = macro_key.len()` themselves, exactly like C++.
+    /// Look the accumulated `hook.macro_key` up in the owned `MacroTable` and,
+    /// on a hit, fill `hook.macro_data` with the content codes and return true.
+    /// On a miss, leaves `hook.macro_data` untouched (only clears/assigns the
+    /// content codes on a match). The break/SPACE/english-mode call sites set
+    /// `hook.code = ReplaceMacro` / `hook.backspace_count = macro_key.len()`
+    /// themselves, exactly like the source.
     fn find_macro(&mut self) -> bool {
         match self.macros.find(&self.hook.macro_key, self.opts.auto_caps_macro) {
             Some(content) => {
@@ -306,7 +258,7 @@ impl Engine {
         }
     }
 
-    /// `Engine.cpp:381-416 saveWord()` (no-arg overload).
+    /// Save the current word (no-arg overload).
     fn save_word(&mut self) {
         if self.hook.code != HookCode::ReplaceMacro {
             if self.buf.index > 0 {
@@ -342,24 +294,23 @@ impl Engine {
         }
     }
 
-    /// `Engine.cpp:418-424 saveWord(keyCode, count)` (2-arg overload). Every
-    /// call site guards `count > 0` before calling, matching the C++ loop
+    /// Save a repeated key `count` times (2-arg overload). Every call site
+    /// guards `count > 0` before calling, matching the C++ loop
     /// (`for (i = 0; i < count; i++)`), which never runs for `count <= 0`.
     fn save_word_repeated(&mut self, key_code: u32, count: i32) {
         self.typing_states.push(vec![key_code; count as usize]);
     }
 
-    /// `Engine.cpp:435-455 restoreLastTypingState`.
     fn restore_last_typing_state(&mut self) {
         if let Some(data) = self.typing_states.pop() {
             if !data.is_empty() {
-                // Engine.cpp:440 compares the full, untruncated Uint32
-                // element against KEY_SPACE -- no cast.
+                // Compare the full, untruncated u32 element against KEY_SPACE
+                // (no cast).
                 if data[0] == KEY_SPACE as u32 {
                     self.space_count = data.len() as i32;
                     self.buf.index = 0;
                 } else if CHAR_KEY_CODE.iter().any(|&b| b as u16 == data[0] as u16) {
-                    // Engine.cpp:443 truncates to `(Uint16)` before the lookup.
+                    // Truncate to `u16` before the lookup.
                     self.buf.index = 0;
                     self.special_char = data;
                     self.check_spelling(false);
@@ -367,14 +318,13 @@ impl Engine {
                     for (i, &w) in data.iter().enumerate() {
                         self.buf.word[i] = w;
                     }
-                    // Engine.cpp:451 `(Byte)` truncates the size to 8 bits.
+                    // Truncate the size to 8 bits (`as u8`).
                     self.buf.index = (data.len() as u8) as i32;
                 }
             }
         }
     }
 
-    /// `Engine.cpp:1204-1221 checkRestoreIfWrongSpelling`.
     fn check_restore_if_wrong_spelling(&mut self, handle_code: HookCode) -> bool {
         let mut ii = 0i32;
         while ii < self.buf.index {
@@ -388,8 +338,8 @@ impl Engine {
                 let mut i = 0i32;
                 while i < self.buf.state_index {
                     self.buf.word[i as usize] = self.buf.states[i as usize];
-                    // mirror C++ quirk: hData is filled with the RAW
-                    // TypingWord[i] value (post-restore), not GET(TypingWord[i]).
+                    // mirror the source quirk: char_data is filled with the RAW
+                    // word[i] value (post-restore), not get(word[i]).
                     self.hook.char_data[(self.buf.state_index - 1 - i) as usize] =
                         self.buf.word[i as usize];
                     i += 1;
@@ -402,7 +352,6 @@ impl Engine {
         false
     }
 
-    /// `Engine.cpp:1237-1281 checkQuickConsonant`.
     fn check_quick_consonant(&mut self) -> bool {
         if self.buf.index <= 1 {
             return false;
@@ -445,21 +394,21 @@ impl Engine {
                 if self.buf.index < MAX_BUFF as i32 - 1 {
                     self.buf.index += 1;
                 }
-                // mirror C++ quirk / UB: Engine.cpp re-looks-up
-                // `_quickEndConsonant[CHR(_index-2)]` (operator[], keyed by the
+                // mirror the source quirk / UB: the source re-looks-up
+                // `QUICK_END_CONSONANT[chr(index-2)]` (operator[], keyed by the
                 // index AFTER the conditional increment above) instead of
-                // reusing this guard's `CHR(_index-1)` (pre-increment) key.
-                // When `_index` was already MAX_BUFF-1 at guard time, the
+                // reusing this guard's `chr(index-1)` (pre-increment) key.
+                // When `index` was already MAX_BUFF-1 at guard time, the
                 // increment above is skipped, so the re-lookup key differs
                 // from the guard's validated key -- if that different
-                // character is not itself a `_quickEndConsonant` key, C++'s
+                // character is not itself a `QUICK_END_CONSONANT` key, the C++
                 // `operator[]` default-constructs an empty vector and the
                 // `[0]`/`[1]` indexing below is an out-of-bounds read (genuine
                 // UB, not a defined quirk, only reachable at
-                // `_index == MAX_BUFF-1`). We look the key up fresh (matching
-                // C++'s statement order/re-lookup exactly) and, on a miss,
-                // skip the mutation as a safe no-op instead of indexing into
-                // nothing.
+                // `index == MAX_BUFF-1`). We look the key up fresh (matching
+                // the source's statement order/re-lookup exactly) and, on a
+                // miss, skip the mutation as a safe no-op instead of indexing
+                // into nothing.
                 if let Some(row2) = QUICK_END_CONSONANT.get(&self.buf.chr(self.buf.index - 2)) {
                     let caps = self.buf.word[(self.buf.index - 2) as usize] & CAPS_MASK != 0;
                     self.buf.word[(self.buf.index - 1) as usize] =
@@ -484,7 +433,6 @@ impl Engine {
         false
     }
 
-    /// `Engine.cpp:349-367 insertKey`.
     pub(crate) fn insert_key(&mut self, key_code: u16, is_caps: bool, is_check_spelling: bool) {
         self.buf.push_word(key_code, is_caps);
 
@@ -501,7 +449,6 @@ impl Engine {
         }
     }
 
-    /// `Engine.cpp:560-585 findAndCalculateVowel`.
     pub(crate) fn find_and_calculate_vowel(&mut self, for_grammar: bool) {
         self.vowel_count = 0;
         self.vsi = 0;
@@ -542,7 +489,6 @@ impl Engine {
         }
     }
 
-    /// `Engine.cpp:986-993 reverseLastStandaloneChar`.
     fn reverse_last_standalone_char(&mut self, key_code: u16, is_caps: bool) {
         self.hook.code = HookCode::WillProcess;
         self.hook.backspace_count = 0;
@@ -554,12 +500,12 @@ impl Engine {
         self.hook.char_data[0] = self.get(self.buf.word[idx as usize]);
     }
 
-    /// `Engine.cpp:995-1040 checkForStandaloneChar`.
     fn check_for_standalone_char(&mut self, data: u16, is_caps: bool, key_will_reverse: u16) {
-        // mirror C++ quirk: C++ reads CHR(_index-1)/TypingWord[_index-1] here
-        // unguarded, which is an out-of-bounds read when _index == 0 (UB). After
-        // a fresh reset that read is non-TONEW, so the branch is never taken;
-        // we guard `index > 0` to get the same effect without the OOB read.
+        // mirror the source quirk: the source reads chr(index-1)/word[index-1]
+        // here unguarded, which is an out-of-bounds read when index == 0 (UB).
+        // After a fresh reset that read is non-TONEW, so the branch is never
+        // taken; we guard `index > 0` to get the same effect without the OOB
+        // read.
         if self.buf.index > 0
             && self.buf.chr(self.buf.index - 1) == key_will_reverse
             && (self.buf.word[(self.buf.index - 1) as usize] & TONEW_MASK) != 0
@@ -609,7 +555,6 @@ impl Engine {
         }
     }
 
-    /// `Engine.cpp:1042-1053 upperCaseFirstCharacter`.
     fn upper_case_first_character(&mut self) {
         if self.buf.word[0] & CAPS_MASK == 0 {
             self.hook.code = HookCode::WillProcess;
@@ -618,8 +563,8 @@ impl Engine {
             self.buf.word[0] |= CAPS_MASK;
             self.hook.char_data[0] = self.get(self.buf.word[0]);
             self.upper_case_status = 0;
-            // C++ indexes hMacroKey[0] unconditionally under vUseMacro; guard
-            // non-empty (only reachable in states our tests never produce).
+            // The source indexes macro_key[0] unconditionally under use_macro;
+            // guard non-empty (only reachable in states our tests never produce).
             if self.opts.use_macro {
                 if let Some(first) = self.hook.macro_key.first_mut() {
                     *first |= CAPS_MASK;
@@ -628,7 +573,6 @@ impl Engine {
         }
     }
 
-    /// `Engine.cpp:1195-1202 handleQuickTelex`.
     fn handle_quick_telex(&mut self, data: u16, is_caps: bool) {
         let pair = &QUICK_TELEX[&(data as u32)];
         let caps = if is_caps { CAPS_MASK } else { 0 };
@@ -640,7 +584,6 @@ impl Engine {
         self.insert_key(pair[1], is_caps, false);
     }
 
-    /// `Engine.cpp:1055-1193 handleMainKey`.
     fn handle_main_key(&mut self, data: u16, is_caps: bool) {
         let it = self.input_type();
 
@@ -758,7 +701,7 @@ impl Engine {
             data
         };
 
-        // _vowel[keyForAEO]: a missing key is an empty row set (C++ map[]).
+        // VOWEL[key_for_aeo]: a missing key is an empty row set (C++ map[]).
         let charset: &[Vec<u16>] = VOWEL.get(&self.key_for_aeo).map_or(&[], |v| v.as_slice());
         self.is_corect = false;
         self.is_changed = false;
@@ -812,7 +755,7 @@ impl Engine {
         }
     }
 
-    /// `Engine.cpp:1314-1552 vKeyHandleEvent`, normal-key path.
+    /// The main event handler (normal-key path).
     pub fn handle_event(
         &mut self,
         event: KeyEvent,
@@ -829,7 +772,7 @@ impl Engine {
             || Self::is_word_break(event, data)
             || (self.buf.index == 0 && is_number_key(data))
         {
-            // `Engine.cpp:1321-1383` break/word-break path.
+            // Break/word-break path.
             self.hook.code = HookCode::DoNothing;
             self.hook.backspace_count = 0;
             self.hook.new_char_count = 0;
@@ -907,9 +850,9 @@ impl Engine {
 
             return &self.hook;
         } else if data == KEY_SPACE {
-            // `Engine.cpp:1384-1419` SPACE path. `hCode` is NOT reset at
-            // branch entry -- it stays whatever it was from the previous
-            // call unless one of the sub-branches below explicitly sets it.
+            // SPACE path. `hook.code` is NOT reset at branch entry -- it stays
+            // whatever it was from the previous call unless one of the
+            // sub-branches below explicitly sets it.
             if !self.temp_disable_key && self.spell_check_on {
                 self.check_spelling(true); // force check spelling
             }
@@ -956,7 +899,7 @@ impl Engine {
             self.will_temp_off_engine = false;
             return &self.hook;
         } else if data == KEY_DELETE {
-            // `Engine.cpp:1420-1465` DELETE path.
+            // DELETE path.
             self.hook.code = HookCode::DoNothing;
             self.hook.ext_code = 2; // delete
 
@@ -1003,7 +946,7 @@ impl Engine {
             return &self.hook;
         }
 
-        // -- normal key (Engine.cpp:1466-1552) --
+        // -- normal key --
         if self.will_temp_off_engine {
             self.hook.code = HookCode::DoNothing;
             self.hook.ext_code = 3;
@@ -1021,7 +964,7 @@ impl Engine {
             self.save_special_char();
         }
 
-        self.buf.push_state(data, is_caps); // insertState
+        self.buf.push_state(data, is_caps);
 
         if !is_special_key(self.input_type(), data) || self.temp_disable_key {
             if self.opts.quick_telex
@@ -1118,10 +1061,10 @@ impl Engine {
         &self.hook
     }
 
-    /// `Engine.cpp:1284-1312 vEnglishMode`. English mode never transforms
-    /// keys (`hCode` stays `DoNothing`); it only accumulates/clears
-    /// `hook.macro_key` for the macro lookup (`find_macro`) on SPACE, and
-    /// tracks `will_temp_off_engine` the same way the normal-key path does.
+    /// English mode never transforms keys (`hook.code` stays `DoNothing`); it
+    /// only accumulates/clears `hook.macro_key` for the macro lookup
+    /// (`find_macro`) on SPACE, and tracks `will_temp_off_engine` the same way
+    /// the normal-key path does.
     pub fn english_mode(
         &mut self,
         st: KeyEventState,
@@ -1148,9 +1091,9 @@ impl Engine {
                 self.will_temp_off_engine = false;
             }
         } else {
-            // mirror C++ quirk: isWordBreak is always called with
-            // vKeyEvent::Keyboard hardcoded here (Engine.cpp:1303), not
-            // whatever event the real caller saw.
+            // mirror the source quirk: is_word_break is always called with
+            // KeyEvent::Keyboard hardcoded here, not whatever event the real
+            // caller saw.
             if Self::is_word_break(KeyEvent::Keyboard, data) && !Self::is_char_key_code(data) {
                 self.hook.macro_key.clear();
                 self.will_temp_off_engine = false;
@@ -1161,7 +1104,6 @@ impl Engine {
         &self.hook
     }
 
-    /// `Engine.cpp:426-433 saveSpecialChar`.
     fn save_special_char(&mut self) {
         self.typing_states.push(self.special_char.clone());
         self.special_char.clear();

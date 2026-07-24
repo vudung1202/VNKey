@@ -1,8 +1,7 @@
 //! Vietnamese character code tables and `get_character_code`.
 //!
-//! Ported verbatim from OpenKey `Vietnamese.cpp:14,411-577` (code tables,
-//! compound-mark table, character map) and `Engine.cpp:501-558`
-//! (`getCharacterCode`).
+//! Contains the code tables, compound-mark table, and character map, plus
+//! `get_character_code`.
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -15,26 +14,23 @@ use crate::keys::*;
 
 type CodeRow = &'static [u16];
 
-/// `Vietnamese.cpp:14 douKey` -- a -> a-circumflex, e -> e-circumflex.
+/// a -> a-circumflex, e -> e-circumflex.
 ///
-/// Not yet consumed: `douKey` is only read by state-machine logic
-/// (`insertAOE`/typing-word handling) that Task 4+ ports, not by this task's
-/// `getCharacterCode`/`keyCodeToCharacter` surface. Kept `pub(crate)` per the
-/// brief so that logic can use it once ported; allowed dead for now.
+/// Not yet consumed: `DOU_KEY` is only read by state-machine logic
+/// (`insert_aoe`/typing-word handling) that Task 4+ ports, not by this task's
+/// `get_character_code`/`key_code_to_character` surface. Kept `pub(crate)` per
+/// the brief so that logic can use it once ported; allowed dead for now.
 #[allow(dead_code)]
 pub(crate) const DOU_KEY: [[u16; 2]; 2] = [[KEY_A, 0xE2], [KEY_E, 0xEA]];
 
-/// `Vietnamese.cpp:494 _unicodeCompoundMark` -- sac, huyen, hoi, nga, nang
-/// combining diacritics, for Unicode Compound.
+/// sac, huyen, hoi, nga, nang combining diacritics, for Unicode Compound.
 ///
 /// Not yet consumed: only used by Unicode Compound decoding logic that
 /// Task 4+ ports. Kept `pub(crate)` per the brief; allowed dead for now.
 #[allow(dead_code)]
 pub(crate) const UNICODE_COMPOUND_MARK: [u16; 5] = [0x0301, 0x0300, 0x0309, 0x0303, 0x0323];
 
-// `Vietnamese.cpp:411-491 _codeTable[]`.
-//
-// Row comment in the source:
+// The code tables. Row layout:
 //   {keyCode, {CAPS_CHAR, NORMAL_CHAR, CAPS_W_CHAR, NORMAL_W_CHAR, <5 marks x caps/lower>}}
 // for A/O/U/E/I/Y base rows, and {<5 marks x caps/lower>} directly for the
 // A|TONE, A|TONEW, O|TONE, O|TONEW, U|TONEW, E|TONE rows.
@@ -443,8 +439,7 @@ fn code_table_map(code_table: CodeTable) -> &'static HashMap<u32, CodeRow> {
     &CODE_TABLES[code_table as usize]
 }
 
-/// `Vietnamese.cpp:508-556 _characterMap` -- ASCII character to (keycode
-/// optionally OR'd with CAPS_MASK).
+/// ASCII character to (keycode optionally OR'd with CAPS_MASK).
 const CHARACTER_MAP: &[(u32, u32)] = &[
     (b'a' as u32, KEY_A as u32),
     (b'A' as u32, KEY_A as u32 | CAPS_MASK),
@@ -543,8 +538,7 @@ const CHARACTER_MAP: &[(u32, u32)] = &[
     (b' ' as u32, KEY_SPACE as u32),
 ];
 
-/// `Vietnamese.cpp:568 keyCodeToCharacter` -- inverse of `_characterMap`,
-/// lazily built once like the C++ `_keyCodeToChar` cache.
+/// Inverse of `CHARACTER_MAP`, lazily built once like the C++ cache.
 static KEY_CODE_TO_CHAR: LazyLock<HashMap<u32, u32>> = LazyLock::new(|| {
     CHARACTER_MAP
         .iter()
@@ -552,8 +546,6 @@ static KEY_CODE_TO_CHAR: LazyLock<HashMap<u32, u32>> = LazyLock::new(|| {
         .collect()
 });
 
-/// `Engine.cpp:501-558 getCharacterCode`.
-///
 /// Returns `data` unchanged when the key/mark combination has no entry in
 /// the code table (mirrors every "not found" early-return in the C++).
 pub fn get_character_code(code_table: CodeTable, data: u32) -> u32 {
@@ -568,7 +560,7 @@ pub fn get_character_code(code_table: CodeTable, data: u32) -> u32 {
             MARK3_MASK => 4,
             MARK4_MASK => 6,
             MARK5_MASK => 8,
-            _ => -2, // matches no C++ switch case: markElem stays -2 (UB in C++)
+            _ => -2, // matches no switch case: mark_elem stays -2 (UB in C++)
         };
         mark_elem += caps_elem;
 
@@ -588,7 +580,7 @@ pub fn get_character_code(code_table: CodeTable, data: u32) -> u32 {
         let Some(row) = table.get(&key) else {
             return data; // not found
         };
-        // C++ indexes the vector with a possibly negative/OOB markElem here,
+        // C++ indexes the vector with a possibly negative/OOB mark_elem here,
         // which is undefined behavior (only reachable with an invalid,
         // multi-bit MARK_MASK combination that real key handling never
         // produces). We deviate deliberately and fall back to `data`.
@@ -606,8 +598,8 @@ pub fn get_character_code(code_table: CodeTable, data: u32) -> u32 {
                 None => data,
             }
         } else if data & TONEW_MASK != 0 {
-            // C++ indexes `row[capsElem + 2]` directly (Engine.cpp:551),
-            // which is undefined behavior for a row shorter than 4 elements
+            // C++ indexes `row[caps_elem + 2]` directly, which is undefined
+            // behavior for a row shorter than 4 elements
             // -- e.g. KEY_D's row has only 2 entries ({Đ, đ}), so
             // KEY_D|TONEW_MASK with no MARK bit indexes out of bounds in
             // C++. We deliberately deviate: fall back to `data` unchanged
@@ -622,16 +614,15 @@ pub fn get_character_code(code_table: CodeTable, data: u32) -> u32 {
     }
 }
 
-/// Returns `true` if C++ `getCharacterCode` (`Engine.cpp:501-558`) would
-/// index its `vector<Uint16>` row out of bounds for this `(code_table,
-/// data)` cell -- undefined behavior in C++, so the differential test must
-/// exclude such cells rather than trust whatever the oracle happens to
-/// read.
+/// Returns `true` if a naive row-index for this `(code_table, data)` cell
+/// would be out of bounds -- a latent out-of-bounds read that this crate's
+/// `get_character_code` guards against with checked indexing. Documents which
+/// cells are affected.
 ///
 /// Mirrors `get_character_code`'s index arithmetic exactly (same masks,
 /// same `mark_elem`/`caps_elem` computation) against the real Rust table
-/// row lengths, which are transcribed verbatim from the C++ `_codeTable[]`
-/// so row lengths match bit-for-bit.
+/// row lengths, which are transcribed verbatim from the C++ code tables so
+/// row lengths match bit-for-bit.
 #[doc(hidden)]
 pub fn cpp_index_would_be_oob(code_table: CodeTable, data: u32) -> bool {
     let caps_elem: i32 = if data & CAPS_MASK != 0 { 0 } else { 1 };
@@ -683,29 +674,26 @@ pub fn cpp_index_would_be_oob(code_table: CodeTable, data: u32) -> bool {
     }
 }
 
-/// `Vietnamese.cpp:568 keyCodeToCharacter`. Returns 0 for an unknown code,
-/// like the C++ version.
+/// Returns 0 for an unknown code, like the C++ version.
 pub fn key_code_to_character(key_code: u32) -> u32 {
     *KEY_CODE_TO_CHAR.get(&key_code).unwrap_or(&0)
 }
 
-/// `Vietnamese.cpp:508 _characterMap` forward lookup: ASCII char code ->
-/// `(keycode [| CAPS_MASK])`, or `None` if absent. Backs the C++
-/// `_characterMap.find(t)` / `_characterMap[t]` used by `Macro.cpp`'s
-/// `convert` and `findMacro`.
+/// Forward lookup: ASCII char code -> `(keycode [| CAPS_MASK])`, or `None` if
+/// absent. Backs the character-map lookups used by the macro conversion
+/// functions.
 static CHAR_TO_KEY: LazyLock<HashMap<u32, u32>> =
     LazyLock::new(|| CHARACTER_MAP.iter().copied().collect());
 
-/// `_characterMap.find(ch)` -- `Some(keycode)` if `ch` maps to a keycode.
+/// `Some(keycode)` if `ch` maps to a keycode.
 pub(crate) fn character_map_get(ch: u32) -> Option<u32> {
     CHAR_TO_KEY.get(&ch).copied()
 }
 
 /// Each code table's rows sorted by key ascending, mirroring `std::map`
-/// iteration order. `Macro.cpp`'s `convert`/`modifyCaseUnicode` and
-/// `ConvertTool.cpp`'s `findKeyCode` all iterate `_codeTable[x].begin()..end()`
-/// and take the *first* matching cell, so the tie-break order (when a char
-/// value appears in more than one row/column, as it does in the collapsed
+/// iteration order. The macro/convert search loops all iterate the code table
+/// in order and take the *first* matching cell, so the tie-break order (when a
+/// char value appears in more than one row/column, as it does in the collapsed
 /// TCVN3 caps/lower pairs) must match `std::map`'s ascending-key order exactly.
 static SORTED_TABLES: LazyLock<[Vec<(u32, CodeRow)>; 5]> = LazyLock::new(|| {
     std::array::from_fn(|i| {
@@ -723,10 +711,9 @@ static SORTED_TABLES: LazyLock<[Vec<(u32, CodeRow)>; 5]> = LazyLock::new(|| {
     })
 });
 
-/// `findKeyCode` (`ConvertTool.cpp:28`) / the inner search loops of
-/// `Macro.cpp`'s `convert`/`modifyCaseUnicode`: scan `_codeTable[code_table]`
-/// in ascending-key order and return `(key, column)` of the first cell whose
-/// `Uint16` value equals `ch`, or `None`.
+/// Scan the code table in ascending-key order and return `(key, column)` of the
+/// first cell whose `u16` value equals `ch`, or `None`. Backs the convert/macro
+/// key-code searches.
 pub(crate) fn find_key_code(code_table: CodeTable, ch: u16) -> Option<(u32, usize)> {
     for &(key, row) in &SORTED_TABLES[code_table as usize] {
         for (z, &cell) in row.iter().enumerate() {
@@ -738,7 +725,7 @@ pub(crate) fn find_key_code(code_table: CodeTable, ch: u16) -> Option<(u32, usiz
     None
 }
 
-/// `_codeTable[code_table][key][k]` -- the raw `Uint16` cell. Returns 0 for an
+/// The raw `u16` cell for `(code_table, key, k)`. Returns 0 for an
 /// out-of-range `(key, k)`; every caller reaches this only with a `(key, k)`
 /// that structurally exists (rows have identical lengths across all 5 tables,
 /// and the `k-1`/`k+1` caps toggles stay in bounds because every row length is
@@ -757,7 +744,7 @@ mod tests {
 
     // -- get_character_code: hand-computed cases --
     //
-    // getCharacterCode (Engine.cpp:501-558) algorithm:
+    // get_character_code algorithm:
     //   capsElem = (data & CAPS_MASK) ? 0 : 1
     //   key = data & CHAR_MASK   (strips CAPS/TONE/TONEW/MARK bits, all >0xFFFF)
     //   if data has a MARK bit:
@@ -776,7 +763,7 @@ mod tests {
     fn e_tone_mark5_lowercase_is_e_dot_below_circumflex() {
         // KEY_E|TONE_MASK|MARK5_MASK: capsElem=1(no caps), markElem=8+1=1... wait 8+1=9.
         // key=E is in {A,O,U,E} but TONE_MASK is set so no +4. key|=TONE_MASK.
-        // Unicode row for KEY_E|TONE_MASK (Vietnamese.cpp:427):
+        // Unicode row for KEY_E|TONE_MASK:
         //   {0x1EBE,0x1EBF,0x1EC0,0x1EC1,0x1EC2,0x1EC3,0x1EC4,0x1EC5,0x1EC6,0x1EC7}
         // index 9 = 0x1EC7 = 'ệ'
         let data = KEY_E as u32 | TONE_MASK | MARK5_MASK;
@@ -799,7 +786,7 @@ mod tests {
     #[test]
     fn a_tonew_no_mark_lowercase_is_a_breve() {
         // No MARK bit. TONEW_MASK set, capsElem=1 -> row[capsElem+2] = row[3].
-        // Unicode KEY_A row (Vietnamese.cpp:415): index3 = 0x0103 = 'ă'.
+        // Unicode KEY_A row: index3 = 0x0103 = 'ă'.
         let data = KEY_A as u32 | TONEW_MASK;
         assert_eq!(
             get_character_code(CodeTable::Unicode, data),
@@ -810,7 +797,7 @@ mod tests {
     #[test]
     fn o_tonew_mark2_lowercase_is_o_horn_grave() {
         // MARK2 (huyen) -> markElem base 2, +capsElem(1) = 3. TONEW_MASK set -> no +4,
-        // key |= TONEW_MASK. Unicode row KEY_O|TONEW_MASK (Vietnamese.cpp:425):
+        // key |= TONEW_MASK. Unicode row KEY_O|TONEW_MASK:
         //   {0x1EDA,0x1EDB,0x1EDC,0x1EDD,0x1EDE,0x1EDF,0x1EE0,0x1EE1,0x1EE2,0x1EE3}
         // index 3 = 0x1EDD = 'ờ'
         let data = KEY_O as u32 | TONEW_MASK | MARK2_MASK;
@@ -822,10 +809,10 @@ mod tests {
 
     #[test]
     fn d_with_tone_mask_lowercase_is_dd_stroke() {
-        // D has no MARK1-5 entries in the table; OpenKey's insertD() toggles TONE_MASK
-        // on the D cell to flip d <-> đ (Engine.cpp insertD, ~line 813-823).
+        // D has no MARK1-5 entries in the table; D handling toggles TONE_MASK
+        // on the D cell to flip d <-> đ.
         // No MARK bit -> TONE_MASK branch -> row[capsElem].
-        // Unicode KEY_D row (Vietnamese.cpp:419): {0x0110 (Đ), 0x0111 (đ)}.
+        // Unicode KEY_D row: {0x0110 (Đ), 0x0111 (đ)}.
         // capsElem=1 (no caps) -> row[1] = 0x0111 = 'đ'.
         let data = KEY_D as u32 | TONE_MASK;
         assert_eq!(
@@ -849,7 +836,7 @@ mod tests {
         // No MARK bit. TONEW_MASK set -> row[capsElem+2]. KEY_D's row has
         // only 2 elements ({Đ, đ}), so index 2/3 is out of bounds -- this is
         // exactly the C++ UB case the no-mark-branch `.get()` fix guards
-        // against (Engine.cpp:551). We deliberately deviate: return `data`
+        // against. We deliberately deviate: return `data`
         // unchanged instead of indexing out of bounds or panicking.
         let data = KEY_D as u32 | TONEW_MASK;
         assert_eq!(get_character_code(CodeTable::Unicode, data), data);
@@ -860,8 +847,8 @@ mod tests {
     fn d_with_mark2_no_tone_does_not_panic_and_is_safe_fallback() {
         // KEY_D|MARK2_MASK, no TONE/TONEW: markElem = 2(mark2) + capsElem.
         // KEY_D is not in {A,O,U,E}, so no +4 rescue. KEY_D's row has only 2
-        // elements, so markElem (2 or 3) is out of bounds in C++
-        // (Engine.cpp:518-536 -- also UB, distinct from the no-mark branch).
+        // elements, so mark_elem (2 or 3) is out of bounds in C++ (also UB,
+        // distinct from the no-mark branch).
         // We deviate the same way: return `data` unchanged.
         let data = KEY_D as u32 | MARK2_MASK;
         assert_eq!(get_character_code(CodeTable::Unicode, data), data);
@@ -898,7 +885,7 @@ mod tests {
     // across every code table. markElem = 0(mark1) + 1(capsElem) = 1.
     #[test]
     fn a_tone_mark1_unicode_is_a_circumflex_acute() {
-        // Vietnamese.cpp:421 KEY_A|TONE_MASK row: index1 = 0x1EA5 = 'ấ'.
+        // KEY_A|TONE_MASK row: index1 = 0x1EA5 = 'ấ'.
         let data = KEY_A as u32 | TONE_MASK | MARK1_MASK;
         assert_eq!(
             get_character_code(CodeTable::Unicode, data),
@@ -908,7 +895,7 @@ mod tests {
 
     #[test]
     fn a_tone_mark1_tcvn3() {
-        // Vietnamese.cpp:437 KEY_A|TONE_MASK row: {0xCA,0xCA,0xC7,0xC7,0xC8,0xC8,0xC9,0xC9,0xCB,0xCB}
+        // KEY_A|TONE_MASK row: {0xCA,0xCA,0xC7,0xC7,0xC8,0xC8,0xC9,0xC9,0xCB,0xCB}
         // index1 = 0xCA.
         let data = KEY_A as u32 | TONE_MASK | MARK1_MASK;
         assert_eq!(
@@ -919,7 +906,7 @@ mod tests {
 
     #[test]
     fn a_tone_mark1_vni_windows_two_byte() {
-        // Vietnamese.cpp:452 KEY_A|TONE_MASK row:
+        // KEY_A|TONE_MASK row:
         //   {0xC141,0xE161,0xC041,0xE061,0xC541,0xE561,0xC341,0xE361,0xC441,0xE461}
         // index1 = 0xE161 (2-byte packed hi/lo).
         let data = KEY_A as u32 | TONE_MASK | MARK1_MASK;
@@ -931,7 +918,7 @@ mod tests {
 
     #[test]
     fn a_tone_mark1_unicode_compound_packed() {
-        // Vietnamese.cpp:467 KEY_A|TONE_MASK row:
+        // KEY_A|TONE_MASK row:
         //   {0x20C2,0x20E2,0x40C2,0x40E2,0x60C2,0x60E2,0x80C2,0x80E2,0xA0C2,0xA0E2}
         // index1 = 0x20E2 (base char + packed mark index, decoded elsewhere).
         let data = KEY_A as u32 | TONE_MASK | MARK1_MASK;
@@ -943,7 +930,7 @@ mod tests {
 
     #[test]
     fn a_tone_mark1_cp1258() {
-        // Vietnamese.cpp:482 KEY_A|TONE_MASK row:
+        // KEY_A|TONE_MASK row:
         //   {0xECC2,0xECE2,0xCCC2,0xCCE2,0xD2C2,0xD2E2,0xDEC2,0xDEE2,0xF2C2,0xF2E2}
         // index1 = 0xECE2.
         let data = KEY_A as u32 | TONE_MASK | MARK1_MASK;
@@ -957,7 +944,7 @@ mod tests {
     fn a_mark1_no_tone_hits_plus4_offset_lowercase() {
         // Neither TONE_MASK nor TONEW_MASK set, key==A -> markElem += 4.
         // markElem = 0(mark1) + 1(capsElem) + 4 = 5.
-        // Unicode KEY_A row (Vietnamese.cpp:415), index5 = 0x00E1 = 'á'.
+        // Unicode KEY_A row, index5 = 0x00E1 = 'á'.
         let data = KEY_A as u32 | MARK1_MASK;
         assert_eq!(
             get_character_code(CodeTable::Unicode, data),
@@ -979,7 +966,7 @@ mod tests {
     fn i_mark3_not_in_aoue_switch_no_plus4_offset() {
         // KEY_I is not in the {A,O,U,E} switch, so no +4 even without TONE/TONEW.
         // markElem = 4(mark3=hoi) + 1(capsElem) = 5.
-        // Unicode KEY_I row (Vietnamese.cpp:428):
+        // Unicode KEY_I row:
         //   {0x00CD,0x00ED,0x00CC,0x00EC,0x1EC8,0x1EC9,0x128,0x129,0x1ECA,0x1ECB}
         // index5 = 0x1EC9 = 'ỉ'.
         let data = KEY_I as u32 | MARK3_MASK;
@@ -991,7 +978,7 @@ mod tests {
 
     #[test]
     fn consonant_not_in_table_returns_input_unchanged() {
-        // KEY_B has no entry in _codeTable -> "not found", return data as-is.
+        // KEY_B has no entry in the code table -> "not found", return data as-is.
         let data = KEY_B as u32 | CAPS_MASK;
         assert_eq!(get_character_code(CodeTable::Unicode, data), data);
     }
@@ -1006,7 +993,7 @@ mod tests {
     #[test]
     fn found_key_without_tone_or_tonew_flag_returns_input_unchanged() {
         // KEY_D is in the table, but with no MARK bit and neither TONE_MASK nor
-        // TONEW_MASK set, C++ falls through to `return data` (Engine.cpp:552-553).
+        // TONEW_MASK set, C++ falls through to `return data`.
         let data = KEY_D as u32 | CAPS_MASK;
         assert_eq!(get_character_code(CodeTable::Unicode, data), data);
     }
@@ -1014,7 +1001,7 @@ mod tests {
     #[test]
     fn invalid_multi_mark_bits_does_not_panic_and_is_safe_fallback() {
         // Two MARK bits set simultaneously never happens from real key handling
-        // (Engine.cpp only ever ORs in a single MARKx_MASK at a time). In C++
+        // (the source only ever ORs in a single MARKx_MASK at a time). In C++
         // this hits `markElem = -2` (no switch case matches `data & MARK_MASK`
         // exactly), += capsElem(1) = -1. KEY_I is not in the {A,O,U,E} switch,
         // so the "+4 no-tone offset" never rescues the index back to >= 0, and
@@ -1025,7 +1012,7 @@ mod tests {
         assert_eq!(get_character_code(CodeTable::Unicode, data), data);
     }
 
-    // -- key_code_to_character round-trip (Vietnamese.cpp:508-576) --
+    // -- key_code_to_character round-trip --
 
     #[test]
     fn key_code_to_character_round_trips_letters() {
@@ -1054,9 +1041,8 @@ mod tests {
 
     #[test]
     fn all_five_code_tables_have_13_rows() {
-        // Vietnamese.cpp:411-491: each of the 5 _codeTable[] entries has exactly
-        // 13 rows: A, O, U, E, D, A|TONE, A|TONEW, O|TONE, O|TONEW, U|TONEW,
-        // E|TONE, I, Y.
+        // each of the 5 code tables has exactly 13 rows: A, O, U, E, D, A|TONE,
+        // A|TONEW, O|TONE, O|TONEW, U|TONEW, E|TONE, I, Y.
         for ct in [
             CodeTable::Unicode,
             CodeTable::Tcvn3,
@@ -1070,9 +1056,8 @@ mod tests {
 
     #[test]
     fn unicode_a_row_has_14_entries_and_tone_rows_have_10() {
-        // Vietnamese.cpp:415 KEY_A row has 14 entries (no-tone base row packs
-        // caps/breve variants first); Vietnamese.cpp:421 KEY_A|TONE_MASK row
-        // has 10 (5 marks x caps/lower only).
+        // KEY_A row has 14 entries (no-tone base row packs caps/breve variants
+        // first); KEY_A|TONE_MASK row has 10 (5 marks x caps/lower only).
         assert_eq!(code_table_map(CodeTable::Unicode)[&(KEY_A as u32)].len(), 14);
         assert_eq!(
             code_table_map(CodeTable::Unicode)[&(KEY_A as u32 | TONE_MASK)].len(),
@@ -1083,7 +1068,7 @@ mod tests {
 
     #[test]
     fn tcvn3_spot_check_hex_values() {
-        // Vietnamese.cpp:432 KEY_A row: {0xA2,0xA9,0xA1,0xA8,0xB8,0xB8,0xB5,0xB5,0xB6,0xB6,0xB7,0xB7,0xB9,0xB9}
+        // KEY_A row: {0xA2,0xA9,0xA1,0xA8,0xB8,0xB8,0xB5,0xB5,0xB6,0xB6,0xB7,0xB7,0xB9,0xB9}
         let row = &code_table_map(CodeTable::Tcvn3)[&(KEY_A as u32)];
         assert_eq!(row[0], 0xA2);
         assert_eq!(row[13], 0xB9);
@@ -1091,7 +1076,7 @@ mod tests {
 
     #[test]
     fn vni_windows_spot_check_hex_values() {
-        // Vietnamese.cpp:459 KEY_Y row:
+        // KEY_Y row:
         //   {0xD959,0xF979,0xD859,0xF879,0xDB59,0xFB79,0xD559,0xF579,0x00CE,0x00EE}
         let row = &code_table_map(CodeTable::VniWindows)[&(KEY_Y as u32)];
         assert_eq!(row[0], 0xD959);
@@ -1100,7 +1085,7 @@ mod tests {
 
     #[test]
     fn unicode_compound_mark_table_matches_source() {
-        // Vietnamese.cpp:494: sac, huyen, hoi, nga, nang.
+        // sac, huyen, hoi, nga, nang.
         assert_eq!(
             UNICODE_COMPOUND_MARK,
             [0x0301, 0x0300, 0x0309, 0x0303, 0x0323]
@@ -1109,7 +1094,7 @@ mod tests {
 
     #[test]
     fn dou_key_matches_source() {
-        // Vietnamese.cpp:14: a -> a-circumflex, e -> e-circumflex.
+        // a -> a-circumflex, e -> e-circumflex.
         assert_eq!(DOU_KEY, [[KEY_A, 0xE2], [KEY_E, 0xEA]]);
     }
 }

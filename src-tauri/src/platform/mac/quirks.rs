@@ -1,17 +1,15 @@
 //! Per-app injection quirks and `CGEventFlags` decoding.
 //!
 //! All pure functions — unit-tested with no tap and no Accessibility grant.
-//! The app lists and decode rules are ported verbatim from `OpenKey.mm`.
 
 use objc2_core_graphics::CGEventFlags;
 
 /// Apps that need `0x200C` (ZERO WIDTH NON-JOINER) as the "empty" character
-/// instead of `0x202F` (`OpenKey.mm:52 _niceSpaceApp`).
+/// instead of `0x202F`.
 const NICE_SPACE_APPS: &[&str] = &["com.sublimetext.3", "com.sublimetext.2"];
 
-/// Apps that misbehave with Unicode Compound and get browser-style handling
-/// (`OpenKey.mm:57 _unicodeCompoundApp`). `com.apple.` matches every Apple app
-/// by prefix.
+/// Apps that misbehave with Unicode Compound and get browser-style handling.
+/// `com.apple.` matches every Apple app by prefix.
 const UNICODE_COMPOUND_APPS: &[&str] = &[
     "com.apple.",
     "com.google.Chrome",
@@ -23,7 +21,7 @@ const UNICODE_COMPOUND_APPS: &[&str] = &[
 ];
 
 /// Apps where the "insert empty char" autocomplete workaround is disabled and
-/// replaced by Shift+Left selection (`OpenKey.mm:60 _recommendWorkaroundDisabledApp`).
+/// replaced by Shift+Left selection.
 const RECOMMEND_DISABLED_APPS: &[&str] = &["com.apple.Spotlight"];
 
 /// Resolved quirk flags for the current frontmost app.
@@ -31,24 +29,23 @@ const RECOMMEND_DISABLED_APPS: &[&str] = &["com.apple.Spotlight"];
 pub struct AppQuirks {
     /// Use `0x200C` instead of `0x202F` for the empty character.
     pub nice_space: bool,
-    /// `containUnicodeCompoundApp` — prefix match (`OpenKey.mm:169`). Gates the
-    /// double-backspace suppression for Unicode Compound.
+    /// Prefix match. Gates the double-backspace suppression for Unicode
+    /// Compound.
     pub unicode_compound_app_prefix: bool,
-    /// `[_unicodeCompoundApp containsObject:]` — exact match (`OpenKey.mm:743`).
-    /// Gates the (deferred) chromium Shift+Left branch.
+    /// Exact match. Gates the (deferred) chromium Shift+Left branch.
     pub unicode_compound_app_exact: bool,
-    /// App is in `_recommendWorkaroundDisabledApp`.
+    /// App is in the recommend-workaround-disabled list.
     pub recommend_disabled: bool,
 }
 
-/// Resolve quirks for a bundle id. `None` (unknown app) yields all-false, which
-/// mirrors OpenKey treating an unknown app as an ordinary one.
+/// Resolve quirks for a bundle id. `None` (unknown app) yields all-false,
+/// treating an unknown app as an ordinary one.
 pub fn resolve_quirks(bundle_id: Option<&str>) -> AppQuirks {
     match bundle_id {
         None => AppQuirks::default(),
         Some(id) => AppQuirks {
             nice_space: NICE_SPACE_APPS.contains(&id),
-            // hasPrefix already covers the exact-equality case OpenKey OR's in.
+            // starts_with already covers the exact-equality case too.
             unicode_compound_app_prefix: UNICODE_COMPOUND_APPS.iter().any(|p| id.starts_with(p)),
             unicode_compound_app_exact: UNICODE_COMPOUND_APPS.contains(&id),
             recommend_disabled: RECOMMEND_DISABLED_APPS.contains(&id),
@@ -56,7 +53,7 @@ pub fn resolve_quirks(bundle_id: Option<&str>) -> AppQuirks {
     }
 }
 
-/// `caps_status` for `Engine::handle_event` (`OpenKey.mm:718`): 1 = Shift held,
+/// `caps_status` for `Engine::handle_event`: 1 = Shift held,
 /// 2 = Caps Lock (AlphaShift) on, 0 = neither. Takes the raw `CGEventFlags`
 /// bits so it is testable without constructing a `CGEventFlags`.
 pub fn caps_status_from_flags(flags: u64) -> u8 {
@@ -69,8 +66,8 @@ pub fn caps_status_from_flags(flags: u64) -> u8 {
     }
 }
 
-/// `other_control` for `Engine::handle_event` (`OTHER_CONTROL_KEY`,
-/// `OpenKey.mm:16`): any of Command / Control / Option / Fn / NumericPad / Help.
+/// `other_control` for `Engine::handle_event`: any of Command / Control /
+/// Option / Fn / NumericPad / Help.
 pub fn other_control_from_flags(flags: u64) -> bool {
     const MASK: u64 = CGEventFlags::MaskCommand.0
         | CGEventFlags::MaskControl.0

@@ -255,18 +255,18 @@ pub fn macro_export(app: AppHandle, path: String) -> Result<(), String> {
     std::fs::write(&path, text).map_err(|e| e.to_string())
 }
 
-/// `OpenKeyManager.m: quickConvert` (`109-132`), triggered from the UI's
-/// convert-tool window rather than the tray/hotkey (see `tray::quick_convert_now`
-/// for that path, which uses the persisted `Settings::convert_options` instead
-/// of caller-supplied options). Runs on the main thread because AppKit's
+/// Clipboard convert-tool entry point, triggered from the UI's convert-tool
+/// window rather than the tray/hotkey (see `tray::quick_convert_now` for that
+/// path, which uses the persisted `Settings::convert_options` instead of
+/// caller-supplied options). Runs on the main thread because AppKit's
 /// `NSPasteboard` requires it; the command handler blocks on a rendezvous
 /// channel so the IPC caller gets a real result instead of firing blind.
 ///
 /// Returns whether a conversion actually happened (`quick_convert`'s bool):
-/// `ConvertToolViewController.mm: onConvertButton` shows a different message
-/// depending on this -- "converted, saved to clipboard" vs. "clipboard was
-/// empty, nothing to convert" -- so the caller needs it, not just an opaque
-/// success/failure of the IPC call itself.
+/// the convert-tool UI shows a different message depending on this --
+/// "converted, saved to clipboard" vs. "clipboard was empty, nothing to
+/// convert" -- so the caller needs it, not just an opaque success/failure of
+/// the IPC call itself.
 #[tauri::command]
 pub fn convert_clipboard(app: AppHandle, options: ConvertOptions) -> Result<bool, String> {
     let engine_opts = options.to_engine();

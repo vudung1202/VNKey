@@ -1,8 +1,8 @@
-//! Spelling check core (`Engine.cpp:176-288 checkSpelling`).
+//! Spelling check core.
 //!
 //! This ports only what the insert path needs: setting `temp_disable_key`
-//! (via `_spellingOK`/`_spellingVowelOK`). The restore-if-wrong-spelling
-//! machinery (`checkRestoreIfWrongSpelling`) is Task 5.
+//! (via `spelling_ok`/`spelling_vowel_ok`). The restore-if-wrong-spelling
+//! machinery is Task 5.
 //!
 //! The C++ function leans hard on file-scope scratch variables (`i, ii, j, k,
 //! l`) whose values *escape* their `for` loops and are read afterwards (e.g.
@@ -11,8 +11,8 @@
 //! over a shared local so the post-loop value matches exactly.
 //!
 //! `if_same_then_else` is allowed: the "ch"/"t" end-consonant limits are two
-//! distinct C++ rules that happen to share the body `_spellingOK = false`;
-//! merging them would obscure the 1:1 mapping to `Engine.cpp:273-279`.
+//! distinct rules that happen to share the body `spelling_ok = false`;
+//! merging them would obscure the 1:1 mapping to the source.
 #![allow(clippy::if_same_then_else)]
 
 use crate::data::{
@@ -25,12 +25,11 @@ use crate::keys::*;
 use crate::vietnamese::{CONSONANT_TABLE, END_CONSONANT_TABLE, VOWEL_COMBINE};
 
 /// `END_CONSONANT_MASK`/`CONSONANT_ALLOW_MASK` truncated to `u16`, matching
-/// the `Uint16` rows of `_consonantTable`/`_endConsonantTable`.
+/// the `u16` rows of `CONSONANT_TABLE`/`END_CONSONANT_TABLE`.
 const EC: u16 = END_CONSONANT_MASK as u16;
 const CA: u16 = CONSONANT_ALLOW_MASK as u16;
 
 impl Engine {
-    /// `Engine.cpp:176-288 checkSpelling`.
     pub(crate) fn check_spelling(&mut self, force_check_vowel: bool) {
         self.spelling_ok = false;
         self.spelling_vowel_ok = true;

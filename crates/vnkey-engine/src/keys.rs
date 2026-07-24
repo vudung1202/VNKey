@@ -1,7 +1,7 @@
 //! Keyboard key codes.
 //!
-//! Ported verbatim from OpenKey `engine/platforms/mac.h`. These are macOS
-//! virtual keycodes (`CGKeyCode`), not ASCII/character values.
+//! These are macOS virtual keycodes (`CGKeyCode`), not ASCII/character
+//! values.
 
 pub const KEY_ESC: u16 = 53;
 pub const KEY_DELETE: u16 = 51;

@@ -1,9 +1,8 @@
-//! System keyboard input-source check (`vOtherLanguage`): detect whether the
+//! System keyboard input-source check: detect whether the
 //! current macOS keyboard input source is English, so the tap callback can
 //! yield (passthrough, no engine) when the user has switched to some other
 //! system input source (Japanese, Korean, ...).
 //!
-//! Ports the TIS block inside `OpenKeyCallback` (`OpenKey.mm:694-710`).
 //! Carbon's Text Input Source Services has no `objc2` binding in this
 //! dependency tree, so the three symbols are declared by hand, matching the
 //! established pattern in `ffi.rs`'s Accessibility bindings.
@@ -12,15 +11,11 @@
 //! `TISCopyCurrentKeyboardInputSource` is a "Copy" function (owned, +1
 //! retain -- caller must `CFRelease`). `TISGetInputSourceProperty` and
 //! `CFArrayGetValueAtIndex` are "Get" accessors (unowned/borrowed -- must
-//! NOT be released). OpenKey's original C++ gets this backwards: it leaks
-//! `isource` on every non-English return (the early `return event;` skips
-//! the `CFRelease` written below it) and, on the English path, wrongly
-//! `CFRelease`s `langRef` (an unowned array element) while correctly
-//! releasing `isource`. This port fixes both: `isource` is released exactly
-//! once, whenever non-null, on every path; `languages`/`lang_ref` (both
-//! unowned) are never released. This is a memory-safety correction, not a
-//! behavior change -- Rust cannot tolerate the original's leak/over-release
-//! the way Objective-C's reference counting silently absorbs it.
+//! NOT be released). So: release `isource` exactly once, whenever non-null,
+//! on every path (including the early non-English return); never release
+//! `languages`/`lang_ref`, which are unowned. Getting this wrong leaks
+//! `isource` or over-releases an unowned array element -- Rust cannot tolerate
+//! either the way Objective-C's reference counting silently absorbs it.
 
 use core::ffi::c_void;
 use std::sync::Arc;
@@ -61,10 +56,11 @@ unsafe extern "C" {
     );
 }
 
-/// `OpenKey.mm:703`'s language check (`![currentLanguage isLike:@"en"]`).
-/// `isLike:` has no discoverable definition anywhere in the OpenKey source
-/// tree (grepped the whole checkout -- only the one call site exists, no
-/// category/extension declares it). Interpreted here as a BCP-47
+/// The original language check compared the input source's language against
+/// `"en"` with an `isLike:` selector that has no discoverable definition
+/// anywhere in the reference source tree (grepped the whole checkout -- only
+/// the one call site exists, no category/extension declares it). Interpreted
+/// here as a BCP-47
 /// primary-subtag prefix match (`"en"`, `"en-US"`, `"en-GB"`, ... all match;
 /// `"ja"`, `"vi"`, ... do not), which is the practical intent of comparing a
 /// TIS input-source language code against the literal `"en"`.
@@ -74,9 +70,9 @@ pub fn is_english_language_code(lang: &str) -> bool {
 
 /// `true` when the current macOS keyboard input source's first declared
 /// language is English, or when the check is inconclusive (no current input
-/// source, no language property, empty language list) -- OpenKey falls
-/// through to "keep typing Vietnamese" in all of those cases, never forcing
-/// passthrough on an inconclusive read.
+/// source, no language property, empty language list) -- in all of those
+/// cases the engine keeps typing Vietnamese, never forcing passthrough on an
+/// inconclusive read.
 pub fn current_input_is_english() -> bool {
     // SAFETY: nullary Carbon call, always safe to invoke.
     let isource = unsafe { TISCopyCurrentKeyboardInputSource() };

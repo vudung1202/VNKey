@@ -1,26 +1,12 @@
 //! Macro table -- Vietnamese "gõ tắt" text expansion.
 //!
-//! Pure-Rust port of OpenKey `Macro.cpp`/`Macro.h`. The C++ keeps one
-//! file-scope `map<vector<Uint32>, MacroData> macroMap`; here it becomes a
+//! The C++ keeps one
+//! file-scope `map<vector<Uint32>, MacroData>`; here it becomes a
 //! [`MacroTable`] the `Engine` owns. A `std::map` keyed by `vector<Uint32>`
 //! iterates in ascending lexicographic key order, so [`MacroTable`] uses a
 //! [`BTreeMap`] with the identical `Ord` (Rust `Vec<u32>` compares
 //! lexicographically like `std::vector`) -- this is what makes `to_blob` /
 //! `all` / `export_unikey_txt` byte-exact against the C++ save order.
-//!
-//! C++ -> Rust map:
-//! - `convert` (`Macro.cpp:29`)               -> [`convert`]
-//! - `initMacroMap` (`Macro.cpp:80`)          -> [`MacroTable::from_blob`]
-//! - `getMacroSaveData` (`Macro.cpp:112`)     -> [`MacroTable::to_blob`]
-//! - `modifyCaseUnicode` (`Macro.cpp:132`)    -> [`MacroTable::modify_case_unicode`]
-//! - `findMacro` (`Macro.cpp:155`)            -> [`MacroTable::find`]
-//! - `hasMacro` (`Macro.cpp:199`)             -> [`MacroTable::has`]
-//! - `getAllMacro` (`Macro.cpp:205`)          -> [`MacroTable::all`]
-//! - `addMacro` (`Macro.cpp:216`)             -> [`MacroTable::add`]
-//! - `deleteMacro` (`Macro.cpp:232`)          -> [`MacroTable::delete`]
-//! - `onTableCodeChange` (`Macro.cpp:242`)    -> [`MacroTable::on_table_code_change`]
-//! - `saveToFile` (`Macro.cpp:248`)           -> [`MacroTable::export_unikey_txt`]
-//! - `readFromFile` (`Macro.cpp:258`)         -> [`MacroTable::import_unikey_txt`]
 
 use std::collections::BTreeMap;
 
@@ -29,16 +15,15 @@ use crate::charset::{
 };
 use crate::data::{CHAR_CODE_MASK, CodeTable, PURE_CHARACTER_MASK};
 
-/// `Macro.cpp:29 convert` -- turn a UTF-8 macro string into the engine's cell
-/// vector.
+/// Turn a UTF-8 macro string into the engine's cell vector.
 ///
 /// Each UTF-16 code unit `t` (the C++ uses `wstring` via
 /// `std::codecvt_utf8_utf16`, so BMP scalars are one unit; `encode_utf16`
 /// reproduces that) maps to:
-///   1. its keycode from `_characterMap`, if present (ASCII letters/digits/
+///   1. its keycode from the character map, if present (ASCII letters/digits/
 ///      punctuation/space); else
-///   2. a re-encoded accented cell: the char is looked up in `_codeTable[0]`
-///      (always Unicode) and re-emitted from `_codeTable[code_table]` with
+///   2. a re-encoded accented cell: the char is looked up in code table 0
+///      (always Unicode) and re-emitted from `code_table` with
 ///      `CHAR_CODE_MASK` set; else
 ///   3. `t | PURE_CHARACTER_MASK` ("other" character passed through verbatim).
 pub(crate) fn convert(text: &str, code_table: CodeTable) -> Vec<u32> {
@@ -52,8 +37,8 @@ pub(crate) fn convert(text: &str, code_table: CodeTable) -> Vec<u32> {
             out.push(kc);
             continue;
         }
-        // find character which has tone/mark: search _codeTable[0] (Unicode),
-        // re-emit from _codeTable[code_table].
+        // find character which has tone/mark: search code table 0 (Unicode),
+        // re-emit from code_table.
         if let Some((key, k)) = find_key_code(CodeTable::Unicode, unit) {
             out.push(code_table_cell(code_table, key, k) as u32 | CHAR_CODE_MASK);
             continue;
@@ -63,8 +48,7 @@ pub(crate) fn convert(text: &str, code_table: CodeTable) -> Vec<u32> {
     out
 }
 
-/// ASCII-only `toupper` (the oracle runs in the `"C"` locale, so C++'s
-/// `toupper`/`towupper` only case ASCII; higher code units pass through).
+/// ASCII-only uppercase: only `a`-`z` are cased; higher code units pass through.
 fn ascii_upper(ch: u32) -> u32 {
     if (b'a' as u32..=b'z' as u32).contains(&ch) {
         ch - 0x20
@@ -85,17 +69,16 @@ struct MacroEntry {
     content_code: Vec<u32>,
 }
 
-/// The macro table (`Macro.cpp`'s `macroMap` + the active `vCodeTable`).
+/// The macro table (the `map` plus the active code table).
 #[derive(Debug, Clone)]
 pub struct MacroTable {
     /// Keyed by `convert(macroText)`; `BTreeMap` reproduces `std::map`'s
     /// ascending-key iteration order.
     map: BTreeMap<Vec<u32>, MacroEntry>,
-    /// The code table the keys/content codes were built under -- C++'s global
-    /// `vCodeTable` as seen by `convert`/`findMacro`. `from_blob` builds under
-    /// `Unicode` (the OpenKey default `vCodeTable` at `initMacroMap` time);
-    /// `add`/`on_table_code_change` update it, matching how the host sets
-    /// `vCodeTable` before those C++ calls.
+    /// The code table the keys/content codes were built under -- as seen by
+    /// `convert`/`find`. `from_blob` builds under `Unicode` (the default code
+    /// table at load time); `add`/`on_table_code_change` update it, matching how
+    /// the host sets the code table before those calls.
     code_table: CodeTable,
 }
 
@@ -106,8 +89,7 @@ impl Default for MacroTable {
 }
 
 impl MacroTable {
-    /// Empty table (code table defaults to `Unicode`, OpenKey's first-run
-    /// `vCodeTable`).
+    /// Empty table (code table defaults to `Unicode`, the first-run default).
     pub fn new() -> Self {
         MacroTable {
             map: BTreeMap::new(),
@@ -120,15 +102,15 @@ impl MacroTable {
         self.code_table
     }
 
-    /// `Macro.cpp:80 initMacroMap` -- load from the on-disk blob.
+    /// Load from the on-disk blob.
     ///
-    /// Blob layout (`Macro.cpp:67-79`): `[u16 count]` then, per macro,
+    /// Blob layout: `[u16 count]` then, per macro,
     /// `[u8 textLen][text bytes][u16 contentLen][content bytes]`; all
     /// little-endian. Keys/content codes are built under `Unicode` (the
-    /// default `vCodeTable`); call [`on_table_code_change`](Self::on_table_code_change)
+    /// default code table); call [`on_table_code_change`](Self::on_table_code_change)
     /// afterward if the host's table differs. Truncated/malformed input stops
     /// early rather than reading past the end (the C++ reads unchecked -- UB
-    /// on a malformed blob; well-formed OpenKey blobs are always UTF-8).
+    /// on a malformed blob; well-formed blobs are always UTF-8).
     pub fn from_blob(data: &[u8]) -> Self {
         let mut table = MacroTable::new();
         let mut cursor = 0usize;
@@ -163,7 +145,7 @@ impl MacroTable {
         table
     }
 
-    /// `Macro.cpp:112 getMacroSaveData` -- serialize back to the blob format.
+    /// Serialize back to the blob format.
     /// Byte-exact inverse of [`from_blob`](Self::from_blob) for well-formed
     /// (UTF-8, <=255-byte text, <=65535-byte content) data.
     pub fn to_blob(&self) -> Vec<u8> {
@@ -172,7 +154,7 @@ impl MacroTable {
         out.push(total as u8);
         out.push((total >> 8) as u8);
         for entry in self.map.values() {
-            // (Byte)macroText.size(): truncates a >255-byte text, mirror C++.
+            // truncates a >255-byte text (`as u8`), mirroring the source.
             out.push(entry.text.len() as u8);
             out.extend_from_slice(entry.text.as_bytes());
             let content_size = entry.content.len() as u16;
@@ -183,13 +165,11 @@ impl MacroTable {
         out
     }
 
-    /// `Macro.cpp:199 hasMacro`.
     pub fn has(&self, text: &str) -> bool {
         self.map.contains_key(&convert(text, self.code_table))
     }
 
-    /// `Macro.cpp:205 getAllMacro` -- `(macroText, macroContent)` in save
-    /// order.
+    /// `(text, content)` in save order.
     pub fn all(&self) -> Vec<(String, String)> {
         self.map
             .values()
@@ -197,9 +177,9 @@ impl MacroTable {
             .collect()
     }
 
-    /// `Macro.cpp:216 addMacro` -- add a new macro or replace an existing
-    /// one's content. `code_table` is the host's current `vCodeTable`; it
-    /// becomes the table used for this and subsequent lookups.
+    /// Add a new macro or replace an existing one's content. `code_table` is
+    /// the host's current code table; it becomes the table used for this and
+    /// subsequent lookups.
     pub fn add(&mut self, text: &str, content: &str, code_table: CodeTable) -> bool {
         self.code_table = code_table;
         let key = convert(text, code_table);
@@ -218,15 +198,13 @@ impl MacroTable {
         true
     }
 
-    /// `Macro.cpp:232 deleteMacro`.
     pub fn delete(&mut self, text: &str) -> bool {
         self.map.remove(&convert(text, self.code_table)).is_some()
     }
 
-    /// `Macro.cpp:242 onTableCodeChange` -- rebuild every `macroContentCode`
-    /// for the new table. Note (like the C++) the *keys* are NOT rebuilt --
-    /// only content codes -- so an accented macro trigger keeps the key it was
-    /// created under.
+    /// Rebuild every content code for the new table. Note (like the C++) the
+    /// *keys* are NOT rebuilt -- only content codes -- so an accented macro
+    /// trigger keeps the key it was created under.
     pub fn on_table_code_change(&mut self, code_table: CodeTable) {
         self.code_table = code_table;
         for entry in self.map.values_mut() {
@@ -234,17 +212,15 @@ impl MacroTable {
         }
     }
 
-    /// `Macro.cpp:155 findMacro` -- look `key` (the engine's accumulated
-    /// `macroKey`, i.e. keycodes) up and return the content codes to emit, or
-    /// `None`.
+    /// Look `key` (the engine's accumulated macro key, i.e. keycodes) up and
+    /// return the content codes to emit, or `None`.
     ///
-    /// The input keycodes are first run through `getCharacterCode` (matching
-    /// the C++ in-place `key[c] = getCharacterCode(key[c])`) so accented
-    /// keystrokes compare against the stored `convert`'d keys. On an exact
-    /// miss with `auto_caps` on, the key is lowered a column at a time
+    /// The input keycodes are first run through `get_character_code` in place so
+    /// accented keystrokes compare against the stored `convert`'d keys. On an
+    /// exact miss with `auto_caps` on, the key is lowered a column at a time
     /// (`modify_case_unicode`) and, if the lowercased key matches, the content
     /// is upper-cased: only its first cell for a Capitalized trigger, or every
-    /// cell for an ALL-CAPS trigger (`_macroFlag`).
+    /// cell for an ALL-CAPS trigger.
     pub fn find(&self, key: &[u32], auto_caps: bool) -> Option<Vec<u32>> {
         let mut key: Vec<u32> = key
             .iter()
@@ -263,8 +239,8 @@ impl MacroTable {
                     self.modify_case_unicode(cell, false);
                 }
             }
-            // Nested (not collapsed) to mirror the C++ `if (... key[0] ...) {
-            // if (macroMap.find(key) ...) }` structure verbatim.
+            // Nested (not collapsed) to mirror the C++ nested-`if` structure
+            // verbatim.
             #[allow(clippy::collapsible_if)]
             if !key.is_empty() && self.modify_case_unicode(&mut key[0], false) {
                 if let Some(entry) = self.map.get(&key) {
@@ -274,10 +250,11 @@ impl MacroTable {
                             let k_char = key_code_to_character(*cell);
                             if k_char != 0 {
                                 let up = ascii_upper(k_char);
-                                // C++ `_characterMap[toupper(kChar)]` (operator[]
-                                // default-inserts 0 for an absent key; every
-                                // reachable `up` is present, so `.unwrap_or(0)`
-                                // only mirrors that never-taken default).
+                                // The C++ looks up `toupper(kChar)` with
+                                // operator[] (default-inserts 0 for an absent
+                                // key; every reachable `up` is present, so
+                                // `.unwrap_or(0)` only mirrors that never-taken
+                                // default).
                                 *cell = character_map_get(up).unwrap_or(0);
                                 continue;
                             }
@@ -293,8 +270,8 @@ impl MacroTable {
         None
     }
 
-    /// `Macro.cpp:248 saveToFile` (to a `String` rather than a path). Header
-    /// then `text:content\n` per macro in save order.
+    /// Save to a `String` rather than a path. Header then `text:content\n` per
+    /// macro in save order.
     pub fn export_unikey_txt(&self) -> String {
         let mut out =
             String::from(";Compatible OpenKey Macro Data file for UniKey*** version=1 ***\n");
@@ -307,7 +284,7 @@ impl MacroTable {
         out
     }
 
-    /// `Macro.cpp:258 readFromFile` (from a `String` rather than a path).
+    /// Load from a `String` rather than a path.
     /// Skips the first (header) line; for each remaining `name:content` line
     /// adds the macro if `name` is non-empty and not already present. The
     /// `while (name == "")` inner loop reattaches leading `:` runs so a macro
@@ -322,7 +299,7 @@ impl MacroTable {
         let mut added = 0usize;
         for (k, line) in content.split('\n').enumerate() {
             if k == 0 {
-                continue; // header line (C++ `k == 1` skip)
+                continue; // header line
             }
             if let Some(pos) = line.find(':') {
                 let mut name = line[..pos].to_string();
@@ -346,8 +323,7 @@ impl MacroTable {
     }
 
     /// Insert a `(text, content)` pair, converting both under the current
-    /// table (the `initMacroMap` loop body). Overwrites on a duplicate key,
-    /// like `macroMap[key] = data`.
+    /// table. Overwrites on a duplicate key.
     fn insert_entry(&mut self, text: String, content: String) {
         let key = convert(&text, self.code_table);
         let content_code = convert(&content, self.code_table);
@@ -361,17 +337,16 @@ impl MacroTable {
         );
     }
 
-    /// `Macro.cpp:132 modifyCaseUnicode` -- lower/upper a single cell in place,
-    /// returning whether it changed.
+    /// Lower/upper a single cell in place, returning whether it changed.
     ///
     /// For a plain keycode cell (no `CHAR_CODE_MASK`) it just flips the caps
     /// bit -- reproducing the C++ `code &= isUpperCase ? CAPS_MASK : ~CAPS_MASK`
     /// exactly, including the quirk that the `isUpperCase` branch masks *down*
     /// to only the caps bit (unreachable in `find`, which only ever calls this
     /// with `isUpperCase == false` on keycodes, and `isUpperCase == true`
-    /// only on `CHAR_CODE_MASK` cells). For an accented cell it walks
-    /// `_codeTable[code_table]` to find the char's `(key, column)` and moves
-    /// to the adjacent caps/lower column.
+    /// only on `CHAR_CODE_MASK` cells). For an accented cell it walks the code
+    /// table to find the char's `(key, column)` and moves to the adjacent
+    /// caps/lower column.
     fn modify_case_unicode(&self, code: &mut u32, is_upper_case: bool) -> bool {
         let char_buff = *code;
         if *code & CHAR_CODE_MASK == 0 {
@@ -418,7 +393,7 @@ mod tests {
 
     #[test]
     fn convert_ascii_trigger_is_plain_keycodes() {
-        // "ms" -> [KEY_M, KEY_S] (via _characterMap, table-independent).
+        // "ms" -> [KEY_M, KEY_S] (via the character map, table-independent).
         assert_eq!(convert("ms", CodeTable::Unicode), vec![KEY_M as u32, KEY_S as u32]);
     }
 

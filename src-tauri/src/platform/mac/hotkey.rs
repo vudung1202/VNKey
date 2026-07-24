@@ -1,63 +1,60 @@
 //! Language-switch hotkey detection, the `FlagsChanged` release-edge state
 //! machine, and the two temp-off chords.
 //!
-//! Ports `checkHotKey` (`OpenKey.mm:515-531`), `switchLanguage`
-//! (`OpenKey.mm:533-542`), and the hotkey/`FlagsChanged` block inside
-//! `OpenKeyCallback` (`OpenKey.mm:614-661`), restricted to `vSwitchKeyStatus`.
-//! `OpenKeyCallback` also drives a second, independent hotkey
-//! (`convertToolHotKey`, "Quick Convert" -> `[appDelegate onQuickConvert]`)
-//! through the exact same `checkHotKey`/`_lastFlag` machinery, interleaved
-//! branch-by-branch with the switch-hotkey checks. That feature has no
-//! `AppDelegate.onQuickConvert` port and is out of the brief's scope, so its
-//! branches are omitted here (not an oversight -- see the Task 9 report).
+//! Covers the switch hotkey: hotkey matching, the
+//! language switch, and the KeyDown/`FlagsChanged` handling. The original also
+//! drives a second, independent hotkey (the "Quick Convert" hotkey) through the
+//! exact same matching/`last_flag` machinery, interleaved branch-by-branch with
+//! the switch-hotkey checks. That feature is out of scope here, so its branches
+//! are omitted (not an oversight -- see the Task 9 report).
 //!
-//! `_lastFlag`/`_hasJustUsedHotKey` are `OpenKeyCallback`'s persisted instance
-//! fields (read and written on every callback invocation, from the KeyDown
-//! and `FlagsChanged` branches alike). [`HotkeyState`] is their Rust home,
-//! owned by the tap thread's `TapContext` and mutated only there -- the tap
-//! callback runs on a single dedicated thread, never concurrently with
-//! itself, so plain fields (no atomics) are correct.
+//! `last_flag`/`has_just_used_hotkey` are persisted release-edge state (read
+//! and written on every callback invocation, from the KeyDown and
+//! `FlagsChanged` branches alike). [`HotkeyState`] owns them on the tap
+//! thread's `TapContext` and mutates them only there -- the tap callback runs
+//! on a single dedicated thread, never concurrently with itself, so plain
+//! fields (no atomics) are correct.
 //!
-//! `checkHotKey`'s C++ body reads `_lastFlag` (never the freshly-read
-//! `_flag`) in every modifier comparison, at both call sites -- including the
-//! KeyDown branch, where `_lastFlag` was last written by a preceding
-//! `FlagsChanged` press edge. [`check_hotkey`] mirrors this exactly: its
-//! `current_flags` parameter is always fed `HotkeyState::last_flag`, never a
-//! raw per-event `CGEventFlags` read.
+//! [`check_hotkey`] reads `last_flag` (never a freshly-read per-event flags
+//! value) in every modifier comparison, at both call sites -- including the
+//! KeyDown branch, where `last_flag` was last written by a preceding
+//! `FlagsChanged` press edge. Its `current_flags` parameter is therefore
+//! always fed `HotkeyState::last_flag`, never a raw per-event `CGEventFlags`
+//! read.
 
 use vnkey_engine::Engine;
 
 use crate::state::SharedConfig;
 
-/// `EMPTY_HOTKEY` (`OpenKey.mm:22`): the "no hotkey configured" sentinel.
+/// `EMPTY_HOTKEY`: the "no hotkey configured" sentinel.
 const EMPTY_HOTKEY: u32 = 0xFE0000FE;
-/// `GET_SWITCH_KEY(data) == 0xFE` (`Engine.h`/`OpenKey.mm` convention): the
-/// packed keycode byte meaning "no physical key -- modifiers only".
+/// `get_switch_key(data) == 0xFE`: the packed keycode byte meaning "no
+/// physical key -- modifiers only".
 const MODIFIER_ONLY_KEYCODE: u16 = 0xFE;
-/// `DEFAULT_SWITCH_STATUS` (`AppDelegate.m:35`): Option+Z, no beep.
+/// The default switch hotkey: Option+Z, no beep.
 pub const DEFAULT_SWITCH_KEY_STATUS: u32 = 0x7A00_0206;
 
-/// `GET_SWITCH_KEY(data)` (`Engine.h:30`).
+/// The packed keycode byte (low 8 bits).
 fn get_switch_key(data: u32) -> u16 {
     (data & 0xFF) as u16
 }
-/// `HAS_CONTROL(data)` (`Engine.h:31`).
+/// Whether the Control bit is set.
 fn has_control(data: u32) -> bool {
     data & 0x100 != 0
 }
-/// `HAS_OPTION(data)` (`Engine.h:32`).
+/// Whether the Option bit is set.
 fn has_option(data: u32) -> bool {
     data & 0x200 != 0
 }
-/// `HAS_COMMAND(data)` (`Engine.h:33`).
+/// Whether the Command bit is set.
 fn has_command(data: u32) -> bool {
     data & 0x400 != 0
 }
-/// `HAS_SHIFT(data)` (`Engine.h:34`).
+/// Whether the Shift bit is set.
 fn has_shift(data: u32) -> bool {
     data & 0x800 != 0
 }
-/// `HAS_BEEP(data)` (`Engine.h:36`).
+/// Whether the beep bit is set.
 fn has_beep(data: u32) -> bool {
     data & 0x8000 != 0
 }
@@ -70,7 +67,7 @@ const MASK_CONTROL: u64 = 0x40000;
 const MASK_ALTERNATE: u64 = 0x80000; // Option
 const MASK_COMMAND: u64 = 0x100000;
 
-/// `checkHotKey` (`OpenKey.mm:515-531`). XOR-compares each modifier bit of
+/// XOR-compares each modifier bit of
 /// `hotkey_data` against `current_flags`; when `check_keycode` is set, also
 /// requires `keycode` to match the hotkey's packed key byte.
 pub fn check_hotkey(hotkey_data: u32, current_flags: u64, check_keycode: bool, keycode: u16) -> bool {
@@ -103,17 +100,16 @@ pub struct FlagsChangedAction {
     /// The switch hotkey matched on this release edge -- caller must call
     /// [`switch_language`] and swallow the event.
     pub switch: bool,
-    /// `vTempOffSpelling` is on and Control was among the modifiers just
-    /// released -- caller must call `engine.temp_off_spell_checking()`.
+    /// The temp-off-spelling chord is on and Control was among the modifiers
+    /// just released -- caller must call `engine.temp_off_spell_checking()`.
     pub temp_off_spelling: bool,
-    /// `vTempOffOpenKey` is on and Command was among the modifiers just
+    /// The temp-off-engine chord is on and Command was among the modifiers just
     /// released -- caller must call `engine.temp_off_engine(true)`.
     pub temp_off_openkey: bool,
 }
 
-/// `_lastFlag`/`_hasJustUsedHotKey` (`OpenKeyCallback` instance fields):
-/// release-edge state for the hotkey/chord machine. One instance lives for
-/// the whole tap thread.
+/// Release-edge state for the hotkey/chord machine (`last_flag` /
+/// `has_just_used_hotkey`). One instance lives for the whole tap thread.
 #[derive(Debug, Default)]
 pub struct HotkeyState {
     last_flag: u64,
@@ -125,10 +121,9 @@ impl HotkeyState {
         Self::default()
     }
 
-    /// KeyDown branch of the hotkey block (`OpenKey.mm:614-631`),
-    /// `vSwitchKeyStatus`-only. Returns `true` when the hotkey fired --
-    /// caller must call [`switch_language`] and swallow the event (`return
-    /// NULL` in the original).
+    /// KeyDown branch of the hotkey block, switch-hotkey only. Returns
+    /// `true` when the hotkey fired -- caller must call [`switch_language`] and
+    /// swallow the event.
     pub fn on_key_down(&mut self, switch_hotkey: u32, keycode: u16) -> bool {
         let switch_key = get_switch_key(switch_hotkey);
         if switch_key != keycode {
@@ -147,8 +142,8 @@ impl HotkeyState {
         false
     }
 
-    /// `FlagsChanged` branch (`OpenKey.mm:634-661`), `vSwitchKeyStatus` +
-    /// temp-off-chord subset. `flags` is the event's current
+    /// `FlagsChanged` branch, switch-hotkey + temp-off-chord subset.
+    /// `flags` is the event's current
     /// `CGEventGetFlags`; `keycode` is its `kCGKeyboardEventKeycode` (the
     /// specific modifier key that changed -- e.g. 59 for Left Control).
     pub fn on_flags_changed(
@@ -166,7 +161,7 @@ impl HotkeyState {
         } else if self.last_flag > flags {
             // Release edge: a modifier was just let go. Check against the
             // peak (`self.last_flag`, pre-release), not the post-release
-            // `flags` -- matches `checkHotKey` reading `_lastFlag`.
+            // `flags`.
             let check_keycode = get_switch_key(switch_hotkey) != MODIFIER_ONLY_KEYCODE;
             if check_hotkey(switch_hotkey, self.last_flag, check_keycode, keycode) {
                 self.last_flag = 0;
@@ -183,18 +178,17 @@ impl HotkeyState {
             self.last_flag = 0;
             self.has_just_used_hotkey = false;
         }
-        // `self.last_flag == flags` (neither branch): OpenKey has no `else`
-        // here either -- state is left untouched.
+        // `self.last_flag == flags` (neither branch): no `else` here -- state
+        // is left untouched.
         action
     }
 }
 
-/// `switchLanguage` (`OpenKey.mm:533-542`): flip `vLanguage`, beep if the
-/// hotkey's beep bit is set, start a new engine session. Tray/UI sync
-/// (`[appDelegate onImputMethodChanged:YES]`) is the caller's job -- `tap.rs`
-/// calls `crate::tray::notify_language_switched` right after this, which
-/// reads the same `enabled` atomic this flips. Must not block: only touches
-/// the atomic and the engine lock the caller already holds, no IPC.
+/// Flip the language, beep if the hotkey's beep bit is set, start a new engine
+/// session. Tray/UI sync is the caller's job -- `tap.rs` calls
+/// `crate::tray::notify_language_switched` right after this, which reads the
+/// same `enabled` atomic this flips. Must not block: only touches the atomic
+/// and the engine lock the caller already holds, no IPC.
 pub fn switch_language(config: &SharedConfig, engine: &mut Engine, switch_hotkey: u32) {
     use std::sync::atomic::Ordering;
 
@@ -220,7 +214,7 @@ mod tests {
     const COMMAND: u64 = MASK_COMMAND;
     const SHIFT: u64 = MASK_SHIFT;
 
-    /// Default ⌥Z (`AppDelegate.m:35`): Option + keycode 6 ('z'), no beep.
+    /// Default ⌥Z: Option + keycode 6 ('z'), no beep.
     const OPT_Z: u32 = DEFAULT_SWITCH_KEY_STATUS;
     /// A modifier-only Ctrl+Shift hotkey (arbitrary, for the FlagsChanged
     /// release-edge tests): keycode byte = 0xFE, Control + Shift bits set.
@@ -323,8 +317,8 @@ mod tests {
     #[test]
     fn key_down_matching_keycode_but_wrong_modifiers_preserves_last_flag() {
         // keycode matches the hotkey's key byte (6, 'z') but Option isn't
-        // held -- OpenKey does NOT reset _lastFlag in this branch (only the
-        // "keycode doesn't match at all" branch resets it).
+        // held -- this branch does NOT reset last_flag (only the "keycode
+        // doesn't match at all" branch resets it).
         let mut st = HotkeyState::new();
         st.last_flag = CONTROL;
         assert!(!st.on_key_down(OPT_Z, 6));
@@ -382,8 +376,8 @@ mod tests {
 
     #[test]
     fn key_based_hotkey_never_fires_from_flags_changed() {
-        // GET_SWITCH_KEY(OPT_Z) == 6, which never equals a modifier's own
-        // keycode (58 == physical Option key) -- checkHotKey's checkKeyCode
+        // get_switch_key(OPT_Z) == 6, which never equals a modifier's own
+        // keycode (58 == physical Option key) -- check_hotkey's check_keycode
         // branch naturally rejects it.
         let mut st = HotkeyState::new();
         st.on_flags_changed(OPT_Z, OPTION, 58, false, false);

@@ -4,7 +4,7 @@
 //! dedicated CGEventTap thread:
 //!
 //! * [`EngineCore`] behind an `Arc<Mutex<_>>` — the Vietnamese engine plus the
-//!   `_syncKey` stack ported from OpenKey. Only ever touched under the lock.
+//!   `sync_key` stack. Only ever touched under the lock.
 //! * [`SharedConfig`] — atomics the tap callback reads on the hot path without
 //!   locking (engine on/off + a couple of injection-quirk toggles).
 
@@ -17,7 +17,7 @@ use crate::platform::mac::hotkey::DEFAULT_SWITCH_KEY_STATUS;
 
 /// Engine state guarded by the mutex.
 ///
-/// `sync_key` is OpenKey's `_syncKey` (`OpenKey.mm:77`): a stack of the UTF-16
+/// `sync_key` is a stack of the UTF-16
 /// unit-length of every character VNKey has injected for the 2-byte code tables
 /// (VNI Windows / Unicode Compound), used to compute how many real backspaces a
 /// logical backspace needs. It lives beside the engine because it is logically
@@ -26,7 +26,7 @@ use crate::platform::mac::hotkey::DEFAULT_SWITCH_KEY_STATUS;
 pub struct EngineCore {
     pub engine: Engine,
     pub sync_key: Vec<u8>,
-    /// Per-app (bundle-id) input-language memory (`SmartSwitchKey.cpp`). Lives
+    /// Per-app (bundle-id) input-language memory. Lives
     /// under the engine lock because both the main-thread NSWorkspace observer
     /// (on app activation) and the tap thread (on a manual language switch)
     /// mutate it. Task 11 loads the on-disk blob into this field at startup
@@ -46,10 +46,10 @@ impl EngineCore {
         }
     }
 
-    /// OpenKey `RequestNewSession()` (`OpenKey.mm:147-154`): drive a
+    /// Full session reset: drive a
     /// `Mouse`/`MouseDown` through the engine (the unconditional word-break
     /// path, which also clears `special_char`/`typing_states`) and, for the
-    /// 2-byte code tables, clear the `_syncKey` stack. Used by the tap thread's
+    /// 2-byte code tables, clear the `sync_key` stack. Used by the tap thread's
     /// mouse branch and by the active-space-change observer.
     pub fn request_new_session(&mut self, code_table: CodeTable) {
         let _ = self
@@ -64,30 +64,30 @@ impl EngineCore {
 /// Flags the tap callback reads on every keystroke without taking the engine
 /// lock. Set once at startup in this task; later tasks flip them from the UI.
 pub struct SharedConfig {
-    /// Master engine on/off (OpenKey's `vLanguage == 1`). When `false` the tap
+    /// Master engine on/off. When `false` the tap
     /// passes every key through untouched.
     pub enabled: AtomicBool,
-    /// `vSendKeyStepByStep` — send each character as its own keyboard event
+    /// Send each character as its own keyboard event
     /// instead of one batched `SetUnicodeString`.
     pub send_key_step_by_step: AtomicBool,
-    /// `vFixRecommendBrowser` — insert an empty character before backspacing to
+    /// Insert an empty character before backspacing to
     /// defeat autocomplete popups (Safari/Chrome address bars, etc.).
     pub fix_recommend_browser: AtomicBool,
-    /// `vFixChromiumBrowser` — use Shift+Left selection instead of backspace in
+    /// Use Shift+Left selection instead of backspace in
     /// Chromium apps. Wiring of the actual Shift+Left branch is deferred (see
     /// `inject.rs`); the flag exists so the default (off) is explicit.
     pub fix_chromium_browser: AtomicBool,
-    /// `vSwitchKeyStatus` — the packed language-switch hotkey (see
+    /// The packed language-switch hotkey (see
     /// `platform::mac::hotkey`). No settings UI yet (Task 13), so this starts
-    /// at OpenKey's default (⌥Z, `DEFAULT_SWITCH_KEY_STATUS`).
+    /// at the default (⌥Z, `DEFAULT_SWITCH_KEY_STATUS`).
     pub switch_key_status: AtomicU32,
-    /// `vTempOffSpelling` — releasing Control alone temporarily disables spell
+    /// Releasing Control alone temporarily disables spell
     /// checking for the in-progress word.
     pub temp_off_spelling: AtomicBool,
-    /// `vTempOffOpenKey` — releasing Command alone temporarily disables the
-    /// whole engine for the in-progress word.
+    /// Releasing Command alone temporarily disables the whole engine for the
+    /// in-progress word.
     pub temp_off_openkey: AtomicBool,
-    /// `vOtherLanguage` — when on, pass every key through untouched while the
+    /// When on, pass every key through untouched while the
     /// system's current keyboard input source isn't English.
     pub other_language: AtomicBool,
     /// Cached `tis::current_input_is_english()` result, refreshed on the MAIN
@@ -97,17 +97,17 @@ pub struct SharedConfig {
     /// (`dispatch_assert_queue`) when called from the tap thread. Starts `true`
     /// ("assume English / keep typing", tis.rs's inconclusive default).
     pub input_is_english: AtomicBool,
-    /// `vPerformLayoutCompat` — translate physical keycodes through the
+    /// Translate physical keycodes through the
     /// current (non-QWERTY) keyboard layout before handing them to the
     /// engine. No settings UI yet (Task 13), so this starts off.
     pub perform_layout_compat: AtomicBool,
-    /// `vUseSmartSwitchKey` — restore the per-app language/code table on app
+    /// Restore the per-app language/code table on app
     /// activation and remember it on a manual switch.
     pub use_smart_switch_key: AtomicBool,
-    /// `vRememberCode` — smart-switch also restores/remembers the code table,
+    /// Smart-switch also restores/remembers the code table,
     /// not just the language.
     pub remember_code: AtomicBool,
-    /// `vCodeTable` — the active code table, as its enum discriminant. Lives
+    /// The active code table, as its enum discriminant. Lives
     /// here (not only in the engine, whose options are private, and not as a
     /// fixed tap-thread field) so the main-thread smart-switch observer can
     /// change it and the tap thread reads the current value each keystroke.
@@ -146,7 +146,7 @@ impl SharedConfig {
         }
     }
 
-    /// The active code table (`vCodeTable`).
+    /// The active code table.
     pub fn code_table(&self) -> CodeTable {
         CodeTable::from_index(self.code_table.load(Ordering::Relaxed)).unwrap_or(CodeTable::Unicode)
     }
@@ -207,7 +207,7 @@ mod tests {
     #[test]
     fn smart_switch_flags_track_options() {
         let config = SharedConfig::new(&EngineOptions::default());
-        // OpenKey defaults: both on.
+        // Defaults: both on.
         assert!(config.use_smart_switch_key.load(Ordering::Relaxed));
         assert!(config.remember_code.load(Ordering::Relaxed));
     }

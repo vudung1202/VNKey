@@ -2,17 +2,14 @@
 //!
 //! AppKit requires these observers to be registered on (and delivered to) the
 //! main thread, so [`register`] is called from Tauri's `setup` closure, not the
-//! tap thread. Ports `registerSupportedNotification` and the four handlers in
-//! `AppDelegate.m:537-571`:
+//! tap thread. Observes the following workspace notifications:
 //!
 //! * `NSWorkspaceDidActivateApplication` -> cache the frontmost bundle id (for
-//!   the tap thread's per-app quirks — closes Task 8 finding 3) + smart-switch
-//!   (`activeAppChanged:` -> `OnActiveAppChanged`);
+//!   the tap thread's per-app quirks - closes Task 8 finding 3) + smart-switch;
 //! * `NSWorkspaceWillSleep` / `NSWorkspaceDidWake` -> disable / enable the tap
-//!   (`receiveSleepNote:`/`receiveWakeNote:`; see [`super::tap::TapControl`] and
-//!   the Task 10 report for the enable-toggle vs. thread-restart decision);
-//! * `NSWorkspaceActiveSpaceDidChange` -> `RequestNewSession`
-//!   (`receiveActiveSpaceChanged:`).
+//!   (see [`super::tap::TapControl`] and the Task 10 report for the
+//!   enable-toggle vs. thread-restart decision);
+//! * `NSWorkspaceActiveSpaceDidChange` -> start a new typing session.
 //!
 //! Each observer is a block that runs synchronously on the posting (main)
 //! thread (`queue: None`); touching the engine locks the shared mutex, which is

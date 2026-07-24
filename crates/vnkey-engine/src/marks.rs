@@ -1,17 +1,11 @@
-//! Tone/mark placement (`Engine.cpp` mark functions).
-//!
-//! Ports `checkCorrectVowel` (468-499), `removeMark` (587-610),
-//! `canHasEndConsonant` (612-627), `handleModernMark` (629-725),
-//! `handleOldMark` (727-751), `insertMark` (753-806), `insertD` (808-831),
-//! `insertAOE` (833-869), `insertW` (871-984) and `checkGrammar` (290-347)
-//! as methods on [`Engine`].
+//! Tone/mark placement.
 //!
 //! Fidelity over elegance: several C++ conditions are self-contradictory
 //! (e.g. `CHR(x) == KEY_I && CHR(x) == KEY_A`) yet deterministic. They are
 //! reproduced verbatim and flagged `// mirror C++ quirk:`.
 //!
 //! Clippy lints are allowed where "simplifying" would break the 1:1 mapping to
-//! `Engine.cpp`: `int_plus_one` keeps the C++ `x - 1 >= 0` guards, and
+//! the source: `int_plus_one` keeps the C++ `x - 1 >= 0` guards, and
 //! `collapsible_if`/`if_same_then_else` keep the C++ nested gates and the
 //! distinct-rule/identical-body ladders (e.g. the "ch"/"t" limits) intact.
 #![allow(
@@ -32,9 +26,8 @@ use crate::vietnamese::VOWEL_COMBINE;
 const EC: u16 = END_CONSONANT_MASK as u16;
 
 impl Engine {
-    /// `Engine.cpp:468-499 checkCorrectVowel`. Only ever uses a single
-    /// `charset[i]` row in the C++, so the row is passed directly. Updates
-    /// `is_corect` (caller sets it `true` before calling).
+    /// Only ever uses a single row in the C++, so the row is passed directly.
+    /// Updates `is_corect` (caller sets it `true` before calling).
     pub(crate) fn check_correct_vowel(&mut self, row: &[u16], mark_key: u16) {
         let it = self.input_type();
 
@@ -79,7 +72,6 @@ impl Engine {
         }
     }
 
-    /// `Engine.cpp:587-610 removeMark`.
     pub(crate) fn remove_mark(&mut self) {
         self.find_and_calculate_vowel(true);
         self.is_changed = false;
@@ -110,7 +102,6 @@ impl Engine {
         }
     }
 
-    /// `Engine.cpp:612-627 canHasEndConsonant`.
     pub(crate) fn can_has_end_consonant(&self) -> bool {
         let vo: &[Vec<u32>] = VOWEL_COMBINE
             .get(&self.buf.chr(self.vsi))
@@ -140,7 +131,6 @@ impl Engine {
         false
     }
 
-    /// `Engine.cpp:727-751 handleOldMark`.
     fn handle_old_mark(&mut self) {
         let idx = self.buf.index;
         if self.vowel_count == 0 && self.buf.chr(self.vei) == KEY_I {
@@ -176,7 +166,6 @@ impl Engine {
         self.hook.new_char_count = self.hook.backspace_count;
     }
 
-    /// `Engine.cpp:629-725 handleModernMark`.
     fn handle_modern_mark(&mut self) {
         let vsi = self.vsi;
         let vei = self.vei;
@@ -302,7 +291,6 @@ impl Engine {
         }
     }
 
-    /// `Engine.cpp:753-806 insertMark`.
     pub(crate) fn insert_mark(&mut self, mark_mask: u32, can_modify_flag: bool) {
         self.vowel_count = 0;
         if can_modify_flag {
@@ -365,7 +353,6 @@ impl Engine {
         self.hook.new_char_count = self.hook.backspace_count;
     }
 
-    /// `Engine.cpp:808-831 insertD`.
     pub(crate) fn insert_d(&mut self, _data: u16, _is_caps: bool) {
         self.hook.code = HookCode::WillProcess;
         let mut bpc = 0i32;
@@ -397,7 +384,6 @@ impl Engine {
         self.hook.new_char_count = bpc as u8;
     }
 
-    /// `Engine.cpp:833-869 insertAOE`.
     pub(crate) fn insert_aoe(&mut self, data: u16, _is_caps: bool) {
         let it = self.input_type();
         self.find_and_calculate_vowel(false);
@@ -444,7 +430,6 @@ impl Engine {
         self.hook.new_char_count = bpc as u8;
     }
 
-    /// `Engine.cpp:871-984 insertW`.
     pub(crate) fn insert_w(&mut self, _data: u16, _is_caps: bool) {
         self.is_restored_w = false;
         self.find_and_calculate_vowel(false);
@@ -572,7 +557,6 @@ impl Engine {
         self.hook.new_char_count = bpc as u8;
     }
 
-    /// `Engine.cpp:290-347 checkGrammar`.
     pub(crate) fn check_grammar(&mut self, delta_back_space: i32) {
         if self.buf.index <= 1 || self.buf.index >= MAX_BUFF as i32 {
             return;

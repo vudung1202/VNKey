@@ -63,8 +63,7 @@ pub unsafe fn event_flags(event: &CGEvent) -> CGEventFlags {
 
 /// Post a raw keyboard keystroke (down then up) from the private source.
 ///
-/// Mirrors OpenKey's `SendKeyCode` / `SendBackspace` / `SendShiftAndLeftArrow`
-/// event construction: force `NonCoalesced` and set/clear the Shift flag.
+/// Event construction: force `NonCoalesced` and set/clear the Shift flag.
 ///
 /// # Safety
 /// `proxy` must be the proxy passed to the currently executing tap callback.
@@ -91,8 +90,8 @@ pub unsafe fn post_key(
     }
 }
 
-/// Post a UTF-16 string (down then up) as a synthetic keyboard event, mirroring
-/// OpenKey's `CGEventKeyboardSetUnicodeString` usage.
+/// Post a UTF-16 string (down then up) as a synthetic keyboard event via
+/// `CGEventKeyboardSetUnicodeString`.
 ///
 /// # Safety
 /// `proxy` must be the proxy passed to the currently executing tap callback.
@@ -117,8 +116,7 @@ pub unsafe fn post_unicode(source: &CGEventSource, proxy: CGEventTapProxy, units
     }
 }
 
-/// Event mask for the events VNKey's tap observes (keyboard + mouse-down/drag,
-/// matching OpenKey's `initEventTap`).
+/// Event mask for the events VNKey's tap observes (keyboard + mouse-down/drag).
 pub fn tap_event_mask() -> CGEventMask {
     let bit = |t: CGEventType| 1u64 << t.0;
     bit(CGEventType::KeyDown)
@@ -184,8 +182,8 @@ pub fn run_tap_loop(tap: &CFMachPort) -> bool {
     true
 }
 
-/// The frontmost application's bundle identifier (OpenKey's `queryFrontMostApp`
-/// / `FRONT_APP`), used for per-app injection quirks.
+/// The frontmost application's bundle identifier, used for per-app injection
+/// quirks.
 ///
 /// MUST be called on the main thread (AppKit). Task 10 moved every caller onto
 /// the main-thread NSWorkspace observer (`workspace.rs`); the tap thread now
@@ -199,10 +197,9 @@ pub fn frontmost_bundle_id() -> Option<String> {
     Some(bid.to_string())
 }
 
-/// This process's own bundle identifier (OpenKey's `OPENKEY_BUNDLE`). The
-/// activation observer skips smart-switch when VNKey itself becomes frontmost,
-/// so opening the settings window does not overwrite the target app's cached
-/// language (mirrors `queryFrontMostApp`'s `!= OPENKEY_BUNDLE` guard).
+/// This process's own bundle identifier. The activation observer skips
+/// smart-switch when VNKey itself becomes frontmost, so opening the settings
+/// window does not overwrite the target app's cached language.
 pub fn own_bundle_id() -> Option<String> {
     use objc2_app_kit::NSRunningApplication;
     let app = NSRunningApplication::currentApplication();

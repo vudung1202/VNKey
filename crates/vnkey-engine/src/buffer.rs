@@ -1,10 +1,9 @@
 //! Typing-word and key-state buffers.
 //!
-//! Mirrors the C++ globals `TypingWord[MAX_BUFF]`/`_index`,
-//! `KeyStates[MAX_BUFF]`/`_stateIndex` and `_longWordHelper`
-//! (`Engine.cpp:83-93`), plus the low-level buffer operations `setKeyData`
-//! (`Engine.cpp:165-169`), the write half of `insertKey`
-//! (`Engine.cpp:349-359`) and `insertState` (`Engine.cpp:369-379`).
+//! Holds the typing-word buffer (`word`/`index`), the key-state buffer
+//! (`states`/`state_index`) and the long-word overflow helper
+//! (`long_word_helper`), plus the low-level buffer operations `set_key_data`,
+//! `push_word`, and `push_state`.
 //!
 //! `index`/`state_index` are `i32`, not `usize`: the C++ code is riddled with
 //! `_index - 1`, `_index - 2`, `_index - 3` reads whose signedness matters
@@ -16,16 +15,11 @@
 use crate::data::{CAPS_MASK, CHAR_MASK, MAX_BUFF};
 
 pub(crate) struct Buffer {
-    /// `Engine.cpp:83 TypingWord[MAX_BUFF]`.
     pub word: [u32; MAX_BUFF],
-    /// `Engine.cpp:84 _index`.
     pub index: i32,
-    /// `Engine.cpp:92 KeyStates[MAX_BUFF]`.
     pub states: [u32; MAX_BUFF],
-    /// `Engine.cpp:93 _stateIndex`.
     pub state_index: i32,
-    /// `Engine.cpp:85 _longWordHelper` -- overflow spill for words longer
-    /// than `MAX_BUFF`.
+    /// Overflow spill for words longer than `MAX_BUFF`.
     pub long_word_helper: Vec<u32>,
 }
 
@@ -40,17 +34,15 @@ impl Buffer {
         }
     }
 
-    /// `Engine.cpp:132 CHR(index)` -- `(Uint16)TypingWord[index]`, i.e. the
-    /// low 16 bits (keycode; the CAPS/TONE/MARK flags all sit above bit 15).
-    /// Caller must guarantee `index >= 0` (every C++ `CHR` read is reached
-    /// only under a guard that ensures that; those guards are preserved at
-    /// each call site).
+    /// The low 16 bits of `word[index]` (the keycode; the CAPS/TONE/MARK flags
+    /// all sit above bit 15). Caller must guarantee `index >= 0` (every read is
+    /// reached only under a guard that ensures that; those guards are preserved
+    /// at each call site).
     #[inline]
     pub(crate) fn chr(&self, index: i32) -> u16 {
         (self.word[index as usize] & CHAR_MASK) as u16
     }
 
-    /// `Engine.cpp:165-169 setKeyData`.
     pub(crate) fn set_key_data(&mut self, index: i32, key_code: u16, is_caps: bool) {
         if index < 0 || index >= MAX_BUFF as i32 {
             return;
@@ -58,10 +50,9 @@ impl Buffer {
         self.word[index as usize] = key_code as u32 | if is_caps { CAPS_MASK } else { 0 };
     }
 
-    /// Write half of `insertKey` (`Engine.cpp:350-359`): append a key to the
-    /// typing word, left-shifting into `_longWordHelper` on overflow. The
-    /// spelling/`tempDisableKey` half of `insertKey` stays on `Engine` since
-    /// it needs engine options + `checkSpelling`.
+    /// Append a key to the typing word, left-shifting into `long_word_helper`
+    /// on overflow. This is the write half only; the spelling/`temp_disable_key`
+    /// half stays on `Engine` since it needs engine options + `check_spelling`.
     pub(crate) fn push_word(&mut self, key_code: u16, is_caps: bool) {
         if self.index >= MAX_BUFF as i32 {
             self.long_word_helper.push(self.word[0]); // save long word
@@ -75,15 +66,15 @@ impl Buffer {
         }
     }
 
-    /// `Engine.cpp:369-379 insertState`.
     pub(crate) fn push_state(&mut self, key_code: u16, is_caps: bool) {
         let caps = if is_caps { CAPS_MASK } else { 0 };
         if self.state_index >= MAX_BUFF as i32 {
             for iii in 0..MAX_BUFF - 1 {
                 self.states[iii] = self.states[iii + 1];
             }
-            // mirror C++ quirk: _stateIndex is NOT incremented on overflow, so
-            // the write lands at states[_stateIndex - 1] and stays pinned there.
+            // mirror the source quirk: state_index is NOT incremented on
+            // overflow, so the write lands at states[state_index - 1] and stays
+            // pinned there.
             self.states[(self.state_index - 1) as usize] = key_code as u32 | caps;
         } else {
             self.states[self.state_index as usize] = key_code as u32 | caps;
@@ -91,10 +82,8 @@ impl Buffer {
         }
     }
 
-    /// `Engine.cpp:1439-1446` (DELETE-branch fragment): pop the last spilled
-    /// word chunk from `_longWordHelper` back into `TypingWord[0]`,
-    /// right-shifting the rest. No-op if `long_word_helper` is empty (mirrors
-    /// the C++ `if (_longWordHelper.size() > 0)` guard).
+    /// Pop the last spilled word chunk from `long_word_helper` back into
+    /// `word[0]`, right-shifting the rest. No-op if `long_word_helper` is empty.
     pub(crate) fn restore_long_word_helper(&mut self) {
         if !self.long_word_helper.is_empty() {
             for i in (1..MAX_BUFF).rev() {

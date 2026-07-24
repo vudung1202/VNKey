@@ -1,27 +1,27 @@
 //! Smart-switch-key table -- per-app (bundle-id) input-language memory.
 //!
-//! Pure-Rust port of OpenKey `SmartSwitchKey.cpp`/`.h`. The C++ keeps a
-//! `map<string, Int8>` plus a 1-entry read cache (`_cacheKey`/`_cacheData`);
+//! The C++ keeps a
+//! `map<string, Int8>` plus a 1-entry read cache (`cache_key`/`cache_data`);
 //! both are reproduced here on [`SmartSwitchTable`]. The stored `i8` packs the
 //! host convention `language | (codeTable << 1)`, but this table treats it as
 //! an opaque byte -- it only stores and returns it.
 //!
 //! A `std::map<string, Int8>` iterates in ascending key order, so the
 //! [`BTreeMap`] here makes [`to_blob`](SmartSwitchTable::to_blob) byte-exact
-//! against `getSmartSwitchKeySaveData`.
+//! against the reference serializer.
 
 use std::collections::BTreeMap;
 
-/// The smart-switch table (`SmartSwitchKey.cpp`'s `_smartSwitchKeyData` +
-/// `_cacheKey`/`_cacheData`).
+/// The smart-switch table (the `map` plus the `cache_key`/`cache_data` read
+/// cache).
 #[derive(Debug, Clone)]
 pub struct SmartSwitchTable {
     map: BTreeMap<String, i8>,
-    /// `_cacheKey` -- last-queried bundle id. Starts empty, matching the C++
-    /// static init; a query for the empty bundle id therefore hits the cache
-    /// on the very first call and returns `_cacheData` (0), mirror the quirk.
+    /// Last-queried bundle id. Starts empty, matching the reference static
+    /// init; a query for the empty bundle id therefore hits the cache on the
+    /// very first call and returns `cache_data` (0), mirroring the quirk.
     cache_key: String,
-    /// `_cacheData` -- cached status for `cache_key`.
+    /// Cached status for `cache_key`.
     cache_data: i8,
 }
 
@@ -41,12 +41,11 @@ impl SmartSwitchTable {
         }
     }
 
-    /// `SmartSwitchKey.cpp:19 initSmartSwitchKey` -- load from the on-disk
-    /// blob. Layout: `[u16 count]` then, per entry,
+    /// Load from the on-disk blob. Layout: `[u16 count]` then, per entry,
     /// `[u8 bundleLen][bundle bytes][i8 value]` (little-endian). Note this
-    /// leaves the read cache untouched, exactly like the C++ (`initSmartSwitchKey`
-    /// clears the map only); [`new`](Self::new)/[`from_blob`](Self::from_blob)
-    /// start from an empty cache regardless.
+    /// leaves the read cache untouched (the reference loader clears the map
+    /// only); [`new`](Self::new)/[`from_blob`](Self::from_blob) start from an
+    /// empty cache regardless.
     pub fn from_blob(data: &[u8]) -> Self {
         let mut table = SmartSwitchTable::new();
         let mut cursor = 0usize;
@@ -76,8 +75,8 @@ impl SmartSwitchTable {
         table
     }
 
-    /// `SmartSwitchKey.cpp:39 getSmartSwitchKeySaveData` -- serialize back to
-    /// the blob format. Byte-exact inverse of [`from_blob`](Self::from_blob).
+    /// Serialize back to the blob format. Byte-exact inverse of
+    /// [`from_blob`](Self::from_blob).
     pub fn to_blob(&self) -> Vec<u8> {
         let mut out = Vec::new();
         let count = self.map.len() as u16;
@@ -91,8 +90,7 @@ impl SmartSwitchTable {
         out
     }
 
-    /// `SmartSwitchKey.cpp:54 getAppInputMethodStatus` -- the per-app language
-    /// lookup. Returns:
+    /// The per-app language lookup. Returns:
     /// - the cached value if `bundle_id` was the last one queried;
     /// - the stored value if `bundle_id` is known (updating the cache);
     /// - `-1` if unknown -- and, as a side effect, *registers* `bundle_id`
@@ -112,8 +110,8 @@ impl SmartSwitchTable {
         -1
     }
 
-    /// `SmartSwitchKey.cpp:69 setAppInputMethodStatus` -- set the default
-    /// language for `bundle_id` and prime the read cache with it.
+    /// Set the default language for `bundle_id` and prime the read cache with
+    /// it.
     pub fn set_status(&mut self, bundle_id: &str, value: i32) {
         let v = value as i8;
         self.map.insert(bundle_id.to_string(), v);
@@ -155,8 +153,8 @@ mod tests {
 
     #[test]
     fn empty_bundle_id_hits_init_cache_quirk() {
-        // _cacheKey starts "" so the very first query for "" is a cache hit
-        // returning _cacheData (0), NOT a -1 miss.
+        // cache_key starts "" so the very first query for "" is a cache hit
+        // returning cache_data (0), NOT a -1 miss.
         let mut t = SmartSwitchTable::new();
         assert_eq!(t.get_status("", 1), 0);
     }

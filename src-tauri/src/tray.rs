@@ -1,12 +1,11 @@
-//! The 15-item status-bar menu (`AppDelegate.m: createStatusBarMenu`,
-//! `201-248`) and the single [`update_tray`] entry point every state-change
-//! source (menu click, IPC command, hotkey, smart-switch) funnels through to
-//! keep it in sync.
+//! The 15-item status-bar menu and the single [`update_tray`] entry point
+//! every state-change source (menu click, IPC command, hotkey, smart-switch)
+//! funnels through to keep it in sync.
 //!
 //! Icon approach: the menu bar shows the language state as literal "V"/"E"
 //! text only, via [`tauri::tray::TrayIcon::set_title`] -- no image at all (no
 //! icon is set on the builder). This is a deliberate product choice: a compact
-//! text-only status item, one code path instead of OpenKey's
+//! text-only status item, one code path instead of an
 //! icon-swap-plus-template-image one, and no extra asset files. The app logo
 //! lives on the Dock icon and in the About window, not here.
 
@@ -61,19 +60,16 @@ pub fn compute_tray_state(settings: &Settings) -> TrayState {
     }
 }
 
-/// Port of `AppDelegate.m: setQuickConvertString` (`250-278`). `hotkey` uses
-/// the same encoding as `switch_key_status`
-/// (`ConvertToolViewController.mm: onMyTextFieldKeyChange`): bits
+/// `hotkey` uses the same encoding as `switch_key_status`: bits
 /// 0x100/0x200/0x400/0x800 are Control/Option/Command/Shift, and the top byte
 /// is the pressed key's *character* (not a virtual keycode) -- `0xFE` means
 /// "no key recorded".
 ///
-/// One deliberate fix, not a literal port: OpenKey compares the top byte
-/// against `kVK_Space` (0x31, a Carbon virtual keycode), but the top byte
-/// holds an ASCII character, and space's character is 0x20 -- the comparison
-/// can never be true, so OpenKey's "show ␣ for the space bar" case is dead
-/// code. This compares against the actual ASCII space (`b' '`) so it works as
-/// evidently intended.
+/// One deliberate fix: the top byte holds an ASCII character, so the space bar
+/// must be detected by comparing it against the actual ASCII space (`b' '`).
+/// Comparing against `kVK_Space` (0x31, a Carbon virtual keycode) can never
+/// match -- space's character is 0x20 -- which would leave the "show ␣ for the
+/// space bar" case as dead code.
 pub fn quick_convert_title(hotkey: u32) -> String {
     let mut label = String::new();
     let mut has_add = false;
@@ -583,10 +579,9 @@ mod tests {
 
     #[test]
     fn quick_convert_title_key_without_any_modifier_stays_unconfigured() {
-        // Faithful to `AppDelegate.m:250-278`: `hasAdd` is only set by the
-        // modifier-bit branches, so a key with no modifier held still
-        // produces the bare label -- not a bug fix, just what the source
-        // does.
+        // `has_add` is only set by the modifier-bit branches, so a key with no
+        // modifier held still produces the bare label -- not a bug fix, just
+        // what the source does.
         let hotkey = (b'a' as u32) << 24;
         assert_eq!(quick_convert_title(hotkey), "Chuyển mã nhanh");
     }

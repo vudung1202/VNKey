@@ -2,16 +2,15 @@
 //!
 //! Pure logic ([`quick_convert`]) is separated from the NSPasteboard-backed
 //! I/O ([`SystemClipboard`]) via the [`Clipboard`] trait, so `quick_convert`
-//! is unit-testable with a mock. Mirrors OpenKey `OpenKeyManager.m:
-//! quickConvert` (109-132): read the pasteboard's string + HTML
-//! representations, run `convert_util` over whichever are present, write the
-//! results back.
+//! is unit-testable with a mock. The convert operation reads the pasteboard's
+//! string + HTML representations, runs `convert_util` over whichever are
+//! present, and writes the results back.
 
 use serde::Serialize;
 use vnkey_engine::{convert_util, ConvertOptions};
 
 /// What's currently on the pasteboard, as the two representations
-/// `quickConvert` reads.
+/// `quick_convert` reads.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct ClipboardContents {
     pub string: Option<String>,
@@ -25,7 +24,7 @@ pub trait Clipboard {
     fn write(&self, contents: &ClipboardContents);
 }
 
-/// `quickConvert` (`OpenKeyManager.m:109-132`): convert the string and HTML
+/// Convert the string and HTML
 /// clipboard representations independently (each only if present) and write
 /// the results back. Returns `false` (no-op) if the clipboard had neither
 /// representation.

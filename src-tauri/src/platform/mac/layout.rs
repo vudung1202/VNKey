@@ -1,15 +1,11 @@
-//! Keyboard-layout compatibility (`vPerformLayoutCompat`): translate a
+//! Keyboard-layout compatibility: translate a
 //! physical key event into the QWERTY-position keycode the engine expects,
 //! for users on a non-QWERTY system keyboard layout.
-//!
-//! Ports `ConvertEventToKeyboadLayoutCompatKeyCode` (`OpenKey.mm:589-595`),
-//! `ConvertKeyStringToKeyCode` (`OpenKey.mm:573-587`) and
-//! `keyStringToKeyCodeMap` (`OpenKey.mm:27-41`).
 
 use objc2_app_kit::NSEvent;
 use objc2_core_graphics::CGEvent;
 
-/// `keyStringToKeyCodeMap` (`OpenKey.mm:27-41`): the character a QWERTY key
+/// The character a QWERTY key
 /// *position* produces (unshifted) -> that position's virtual keycode. Used
 /// to map the character a non-QWERTY layout actually produced back to the
 /// QWERTY-position keycode the engine assumes everything is expressed in.
@@ -66,12 +62,11 @@ fn char_to_qwerty_keycode(c: char) -> Option<u16> {
     })
 }
 
-/// `ConvertKeyStringToKeyCode` (`OpenKey.mm:573-587`): lowercase the produced
-/// string and look up its first character; `fallback` on any miss (empty
-/// string or an unmapped character), matching OpenKey's dictionary-lookup
-/// fallback. The map's entries are all case-paired (e.g. `a`/`A` share a
-/// position), so lowercasing just the one character we look up is equivalent
-/// to `NSString.lowercaseString` for this closed set.
+/// Lowercase the produced string and look up its first character; `fallback`
+/// on any miss (empty string or an unmapped character). The map's entries are
+/// all case-paired (e.g. `a`/`A` share a position), so lowercasing just the one
+/// character we look up is equivalent to `NSString.lowercaseString` for this
+/// closed set.
 pub fn convert_key_string_to_key_code(s: &str, fallback: u16) -> u16 {
     match s.chars().next() {
         Some(c) => char_to_qwerty_keycode(c.to_ascii_lowercase()).unwrap_or(fallback),
@@ -79,11 +74,10 @@ pub fn convert_key_string_to_key_code(s: &str, fallback: u16) -> u16 {
     }
 }
 
-/// `ConvertEventToKeyboadLayoutCompatKeyCode` (`OpenKey.mm:589-595`): re-read
-/// the physical key's unmodified character via
+/// Re-read the physical key's unmodified character via
 /// `NSEvent.charactersIgnoringModifiers` and map it back to the
 /// QWERTY-position keycode. Returns `fallback` (the event's own keycode) if
-/// either AppKit call yields nothing, exactly as OpenKey does.
+/// either AppKit call yields nothing.
 pub fn convert_event_to_layout_compat_keycode(event: &CGEvent, fallback: u16) -> u16 {
     let Some(ns_event) = NSEvent::eventWithCGEvent(event) else {
         return fallback;

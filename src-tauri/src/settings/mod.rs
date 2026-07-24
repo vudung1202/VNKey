@@ -1,10 +1,10 @@
-//! Settings persistence: JSON config + OpenKey-compatible macro/smart-switch
-//! blobs, loaded and applied before the platform layer starts.
+//! Settings persistence: JSON config + macro/smart-switch blobs, loaded and
+//! applied before the platform layer starts.
 //!
 //! `settings.json`, `macros.bin`, `smart_switch.bin` all live in
 //! `~/Library/Application Support/VNKey/`. The macro/smart-switch tables are
 //! deliberately NOT part of the JSON (they're large, append-heavy, and
-//! already have an OpenKey-compatible blob format via
+//! already have a dedicated blob format via
 //! [`MacroTable`]/[`SmartSwitchTable`]).
 //!
 //! Allow dead-code/unused-import warnings across this module tree rather than
@@ -21,13 +21,12 @@ use vnkey_engine::{CodeTable, EngineOptions, InputType, MacroTable, SmartSwitchT
 /// yet (this is the first schema).
 const SCHEMA_VERSION: u32 = 1;
 
-/// `AppDelegate.m: DEFAULT_SWITCH_STATUS` (Option+Z, no beep). Duplicated
+/// The default language-switch hotkey (Option+Z, no beep). Duplicated
 /// from `platform::mac::hotkey::DEFAULT_SWITCH_KEY_STATUS` (same value) so
 /// this module stays buildable without the macOS-only platform layer.
 const DEFAULT_SWITCH_KEY_STATUS: u32 = 0x7A00_0206;
 
-/// `OpenKey.mm: EMPTY_HOTKEY` -- the "no hotkey configured" sentinel used for
-/// the convert-tool quick-hotkey.
+/// The "no hotkey configured" sentinel used for the convert-tool quick-hotkey.
 const EMPTY_HOTKEY: u32 = 0xFE00_00FE;
 
 /// VNKey's persisted configuration, grouped by concern (engine / platform /
@@ -94,20 +93,20 @@ pub struct Settings {
 }
 
 impl Default for Settings {
-    /// OpenKey's first-run defaults (`AppDelegate.m: loadDefaultConfig`,
-    /// `OpenKey.mm: OpenKeyInit`). Fields not called out in the body default
-    /// to 0/false, matching OpenKey's first-run writes.
+    /// The engine's first-run defaults. Fields not called out in the body
+    /// default to 0/false, matching the original's first-run writes.
     ///
-    /// Two `loadDefaultConfig` copy-paste bugs are deliberately NOT
-    /// reproduced:
-    /// - it writes `vCodeTable` (0) into the `SwitchKeyStatus` NSUserDefaults
-    ///   key instead of `vSwitchKeyStatus` -- `switch_key_status` below is
-    ///   the correct `DEFAULT_SWITCH_KEY_STATUS`, not 0.
-    /// - it writes `vUseMacroInEnglishMode` into the `SendKeyStepByStep` key
-    ///   instead of `vSendKeyStepByStep`. Both source values happen to be 0
-    ///   at first run, so the bug is numerically invisible here, but
-    ///   `send_key_step_by_step` is still assigned from the conceptually
-    ///   correct source.
+    /// Two copy-paste bugs in the original's default-config routine are
+    /// deliberately NOT reproduced:
+    /// - it writes the code-table value (0) into the `SwitchKeyStatus`
+    ///   NSUserDefaults key instead of the switch-key-status value --
+    ///   `switch_key_status` below is the correct `DEFAULT_SWITCH_KEY_STATUS`,
+    ///   not 0.
+    /// - it writes the use-macro-in-English-mode value into the
+    ///   `SendKeyStepByStep` key instead of the send-key-step-by-step value.
+    ///   Both source values happen to be 0 at first run, so the bug is
+    ///   numerically invisible here, but `send_key_step_by_step` is still
+    ///   assigned from the conceptually correct source.
     fn default() -> Self {
         Settings {
             schema_version: SCHEMA_VERSION,
@@ -155,13 +154,11 @@ impl Default for Settings {
             convert_to_all_non_caps: false,
             convert_to_caps_first_letter: false,
             convert_to_caps_each_word: false,
-            // `OpenKeyInit`: an unset (0) `convertToolHotKey` is replaced
-            // with `EMPTY_HOTKEY` at every launch -- 0 is never a valid
-            // "first run" value.
+            // An unset (0) convert-tool hotkey is replaced with `EMPTY_HOTKEY`
+            // at every launch -- 0 is never a valid "first run" value.
             convert_hotkey: EMPTY_HOTKEY,
-            // `OpenKeyInit`: `convertToolDontAlertWhenCompleted =
-            // ![prefs boolForKey:...]` -- the stored flag means "alert when
-            // completed", so an unset (false) key inverts to `true`.
+            // The stored flag means "alert when completed", so an unset
+            // (false) key inverts to `true` for `convert_dont_alert`.
             convert_dont_alert: true,
         }
     }
@@ -334,8 +331,7 @@ fn load_macros_from(path: &Path) -> MacroTable {
     fs::read(path).map(|bytes| MacroTable::from_blob(&bytes)).unwrap_or_default()
 }
 
-/// Save the macro table to `macros.bin` (OpenKey-compatible blob, atomic
-/// write).
+/// Save the macro table to `macros.bin` (binary blob, atomic write).
 pub fn save_macros(table: &MacroTable) -> std::io::Result<()> {
     atomic_write(&macros_path(), &table.to_blob())
 }
@@ -352,8 +348,8 @@ fn load_smart_switch_from(path: &Path) -> SmartSwitchTable {
         .unwrap_or_default()
 }
 
-/// Save the smart-switch table to `smart_switch.bin` (OpenKey-compatible
-/// blob, atomic write).
+/// Save the smart-switch table to `smart_switch.bin` (binary blob, atomic
+/// write).
 pub fn save_smart_switch(table: &SmartSwitchTable) -> std::io::Result<()> {
     atomic_write(&smart_switch_path(), &table.to_blob())
 }
@@ -412,8 +408,8 @@ mod tests {
 
     #[test]
     fn default_switch_key_status_avoids_openkey_bug() {
-        // `loadDefaultConfig` writes `vCodeTable` (0) into the
-        // `SwitchKeyStatus` key. The correct default is Option+Z, not 0.
+        // The original's default-config routine writes the code-table value (0)
+        // into the `SwitchKeyStatus` key. The correct default is Option+Z, not 0.
         let s = Settings::default();
         assert_eq!(s.switch_key_status, 0x7A00_0206);
         assert_ne!(s.switch_key_status, 0);

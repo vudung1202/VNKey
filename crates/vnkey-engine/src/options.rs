@@ -1,59 +1,44 @@
 //! Engine configuration options.
 //!
-//! Mirrors the `extern int vXxx` globals declared in OpenKey `Engine.h`
-//! (lines 48-188). `Default` reproduces OpenKey's first-run defaults.
+//! Configuration options for the input engine. `Default` reproduces its
+//! first-run defaults.
 
 use crate::data::CodeTable;
 use crate::data::InputType;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EngineOptions {
-    /// 0: English, 1: Vietnamese (`Engine.h: vLanguage`).
+    /// 0: English, 1: Vietnamese.
     pub language: u8,
-    /// `Engine.h: vInputType`.
     pub input_type: InputType,
-    /// `Engine.h: vCodeTable`.
     pub code_table: CodeTable,
-    /// `Engine.h: vFreeMark`.
     pub free_mark: bool,
-    /// `Engine.h: vCheckSpelling`.
     pub check_spelling: bool,
-    /// `Engine.h: vUseModernOrthography` (0: òa, úy; 1: oà, uý).
+    /// 0: òa, úy; 1: oà, uý.
     pub use_modern_orthography: bool,
-    /// `Engine.h: vQuickTelex` (cc=ch, gg=gi, kk=kh, nn=ng, qq=qu, pp=ph, tt=th, uu=ươ).
+    /// cc=ch, gg=gi, kk=kh, nn=ng, qq=qu, pp=ph, tt=th, uu=ươ.
     pub quick_telex: bool,
-    /// `Engine.h: vRestoreIfWrongSpelling`.
     pub restore_if_wrong_spelling: bool,
-    /// `Engine.h: vFixRecommendBrowser`.
     pub fix_recommend_browser: bool,
-    /// `Engine.h: vUseMacro`.
     pub use_macro: bool,
-    /// `Engine.h: vUseMacroInEnglishMode`.
     pub use_macro_in_english_mode: bool,
-    /// `Engine.h: vAutoCapsMacro`.
     pub auto_caps_macro: bool,
-    /// `Engine.h: vUseSmartSwitchKey`.
     pub use_smart_switch_key: bool,
-    /// `Engine.h: vUpperCaseFirstChar`.
     pub upper_case_first_char: bool,
-    /// `Engine.h: vTempOffSpelling`.
     pub temp_off_spelling: bool,
-    /// `Engine.h: vAllowConsonantZFWJ`.
     pub allow_consonant_zfwj: bool,
-    /// `Engine.h: vQuickStartConsonant` (f -> ph, j -> gi, w -> qu).
+    /// f -> ph, j -> gi, w -> qu.
     pub quick_start_consonant: bool,
-    /// `Engine.h: vQuickEndConsonant` (g -> ng, h -> nh, k -> ch).
+    /// g -> ng, h -> nh, k -> ch.
     pub quick_end_consonant: bool,
-    /// `Engine.h: vRememberCode`.
     pub remember_code: bool,
-    /// `Engine.h: vOtherLanguage`.
     pub other_language: bool,
-    /// `Engine.h: vTempOffOpenKey`.
+    /// Temporarily disables the whole engine for the in-progress word.
     pub temp_off_openkey: bool,
 }
 
 impl Default for EngineOptions {
-    /// OpenKey first-run defaults.
+    /// First-run defaults.
     fn default() -> Self {
         Self {
             language: 1,

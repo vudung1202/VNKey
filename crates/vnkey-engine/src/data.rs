@@ -1,13 +1,12 @@
 //! Core engine data types.
 //!
-//! Ported verbatim from OpenKey `engine/DataType.h`. Values and bit layout
-//! must match the C++ source exactly: later tasks differential-test the
-//! engine against the original C++ build.
+//! Values and bit layout are load-bearing: the code tables and bit masks
+//! encode the typing algorithm exactly.
 
-/// Max length of a typing word buffer (`DataType.h: MAX_BUFF`).
+/// Max length of a typing word buffer.
 pub const MAX_BUFF: usize = 32;
 
-// -- internal engine data masks (DataType.h) --
+// -- internal engine data masks --
 
 pub const CAPS_MASK: u32 = 0x10000;
 pub const TONE_MASK: u32 = 0x20000;
@@ -43,14 +42,12 @@ pub const PURE_CHARACTER_MASK: u32 = 0x8000_0000;
 pub const END_CONSONANT_MASK: u32 = 0x4000;
 pub const CONSONANT_ALLOW_MASK: u32 = 0x8000;
 
-/// `DataType.h: vKeyEvent`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyEvent {
     Keyboard,
     Mouse,
 }
 
-/// `DataType.h: vKeyEventState`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyEventState {
     KeyDown,
@@ -59,7 +56,6 @@ pub enum KeyEventState {
     MouseUp,
 }
 
-/// `DataType.h: vKeyInputType`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InputType {
     Telex = 0,
@@ -68,7 +64,7 @@ pub enum InputType {
     SimpleTelex2 = 3,
 }
 
-/// `Vietnamese.cpp` comment above `_codeTable[]`:
+/// Code table indices:
 /// 0 Unicode, 1 TCVN3, 2 VNI, 3 Unicode Compound, 4 Vietnamese Locale CP1258.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CodeTable {
@@ -80,7 +76,7 @@ pub enum CodeTable {
 }
 
 impl CodeTable {
-    /// Map a 0-based `vCodeTable` index back to the enum (inverse of `as u8`).
+    /// Map a 0-based code-table index back to the enum (inverse of `as u8`).
     /// Returns `None` for an out-of-range index, e.g. a corrupt smart-switch
     /// packed value whose `codeTable` bits exceed the known tables.
     pub fn from_index(index: u8) -> Option<CodeTable> {
@@ -95,7 +91,6 @@ impl CodeTable {
     }
 }
 
-/// `DataType.h: HoolCodeState`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HookCode {
     /// Do not do anything.
@@ -113,7 +108,7 @@ pub enum HookCode {
     RestoreAndStartNewSession = 5,
 }
 
-/// Bytes data sent back to the host application (`DataType.h: vKeyHookState`).
+/// Bytes data sent back to the host application.
 #[derive(Debug, Clone)]
 pub struct HookState {
     pub code: HookCode,
@@ -143,7 +138,7 @@ impl Default for HookState {
     }
 }
 
-/// `DataType.h: IS_DOUBLE_CODE(code)` -- is VNI or Unicode Compound.
+/// Whether the code table is double-code (VNI or Unicode Compound).
 pub fn is_double_code(code_table: CodeTable) -> bool {
     matches!(code_table, CodeTable::VniWindows | CodeTable::UnicodeCompound)
 }

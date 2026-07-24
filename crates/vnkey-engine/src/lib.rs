@@ -1,7 +1,7 @@
-//! Vietnamese input engine (pure Rust port of OpenKey's core).
+//! Vietnamese input engine.
 //!
-//! This crate ports OpenKey's C++ engine types and Vietnamese data tables
-//! (constants, enums, code tables) to Rust. State-machine/typing logic is
+//! This crate implements the C++ engine types and Vietnamese data tables
+//! (constants, enums, code tables) in Rust. State-machine/typing logic is
 //! ported in later tasks.
 
 mod buffer;

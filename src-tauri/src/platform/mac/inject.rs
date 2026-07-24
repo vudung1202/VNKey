@@ -1,20 +1,18 @@
 //! Text injection: turning a `HookState` from the engine into the exact
-//! sequence of synthetic events OpenKey would post (backspaces, Unicode
-//! strings, key re-emits), including the `_syncKey` bookkeeping and per-app
-//! quirks.
+//! sequence of synthetic events to post (backspaces, Unicode strings, key
+//! re-emits), including the `sync_key` bookkeeping and per-app quirks.
 //!
 //! The injection primitives are abstracted behind [`EventSink`] so the whole
 //! pipeline (`dispatch`, `SendNewCharString`, `SendBackspace`, encoding for all
-//! five code tables, batch chunking, `_syncKey` push/pop) is unit-testable with
-//! a recording mock — no real `CGEventTapPostEvent` and no Accessibility grant.
+//! five code tables, batch chunking, `sync_key` push/pop) is unit-testable with
+//! a recording mock - no real `CGEventTapPostEvent` and no Accessibility grant.
 //!
-//! Everything is a direct port of `OpenKey.mm`; line references point at the
-//! original. The one deliberate fix over OpenKey is noted in the tap callback,
-//! not here.
+//! The one deliberate fix over the original is noted in the tap callback, not
+//! here.
 //!
-//! `collapsible_if` is allowed: several nested `if`s mirror OpenKey.mm's
+//! `collapsible_if` is allowed: several nested `if`s mirror the original's
 //! structure verbatim (e.g. `SendBackspace`'s `if (IS_DOUBLE_CODE) { if
-//! (_syncKey.back() > 1) {...} _syncKey.pop_back(); }`), where the outer block
+//! (sync_key.back() > 1) {...} sync_key.pop_back(); }`), where the outer block
 //! also runs code after the inner `if`, so collapsing would obscure the port.
 #![allow(clippy::collapsible_if)]
 
@@ -25,13 +23,13 @@ use vnkey_engine::{
 
 use super::quirks::{AppQuirks, resolve_quirks};
 
-/// `Vietnamese.cpp:494 _unicodeCompoundMark` — combining sac/huyen/hoi/nga/nang
-/// used to decode the packed Unicode Compound cells. Duplicated here (small,
-/// stable) so the engine crate stays free of platform concerns.
+/// Combining sac/huyen/hoi/nga/nang, used to decode the packed Unicode
+/// Compound cells. Duplicated here (small, stable) so the engine crate stays
+/// free of platform concerns.
 const UNICODE_COMPOUND_MARK: [u16; 5] = [0x0301, 0x0300, 0x0309, 0x0303, 0x0323];
 
-/// Max UTF-16 units per synthetic keyboard event (`OpenKey.mm:21`, batched to
-/// stay under CoreGraphics' per-event Unicode-string limit).
+/// Max UTF-16 units per synthetic keyboard event (batched to stay under
+/// CoreGraphics' per-event Unicode-string limit).
 const CHUNK: usize = 16;
 
 /// The abstraction over "post events to the focused app". The real
@@ -98,15 +96,15 @@ pub struct HookSnapshot {
     pub keycode: u16,
     /// `(Shift || CapsLock)` — used for the `Restore` re-emit's caps bit.
     pub caps: bool,
-    /// `Shift` only — used for the macro trailing key's caps bit
-    /// (`OpenKey.mm:569`, which checks Shift alone, not CapsLock).
+    /// `Shift` only - used for the macro trailing key's caps bit (checks Shift
+    /// alone, not CapsLock).
     pub shift: bool,
 }
 
 /// Everything the injection pipeline needs besides the sink and the snapshot.
 pub struct InjectCtx<'a> {
     pub code_table: CodeTable,
-    /// OpenKey's `_syncKey` stack (owned by the tap thread).
+    /// The `sync_key` stack (owned by the tap thread).
     pub sync_key: &'a mut Vec<u8>,
     /// Frontmost app bundle id, read from the shared cache the main-thread
     /// NSWorkspace observer maintains (`workspace.rs`) — the tap thread never
@@ -120,8 +118,8 @@ pub struct InjectCtx<'a> {
     pub fix_recommend_browser: bool,
     pub fix_chromium_browser: bool,
     pub send_step_by_step: bool,
-    /// `isSpotlightVisible()` (`OpenKey.mm:178`). Deferred to a later task; the
-    /// callback passes `false` for now (see module docs / report TODO).
+    /// Whether Spotlight is visible. Deferred to a later task; the callback
+    /// passes `false` for now (see module docs / report TODO).
     pub spotlight_visible: bool,
 }
 
@@ -138,7 +136,6 @@ impl InjectCtx<'_> {
         q
     }
 
-    /// `shouldUseRecommendWorkaround` (`OpenKey.mm:189`).
     fn should_use_recommend_workaround(&mut self) -> bool {
         if !self.fix_recommend_browser {
             return false;
@@ -146,12 +143,11 @@ impl InjectCtx<'_> {
         if self.spotlight_visible {
             return false;
         }
-        // Unknown app -> quirks all-false -> `!recommend_disabled` == true,
-        // matching OpenKey's "topApp == nil -> return true".
+        // Unknown app -> quirks all-false -> `!recommend_disabled` == true, so
+        // an unknown app uses the workaround.
         !self.quirks().recommend_disabled
     }
 
-    /// `shouldUseSelectionReplacement` (`OpenKey.mm:196`).
     fn should_use_selection_replacement(&mut self) -> bool {
         self.spotlight_visible || self.quirks().recommend_disabled
     }
@@ -173,9 +169,8 @@ struct RestoreKey {
     rasns: bool,
 }
 
-/// Port of the KeyDown result-handling block of `OpenKeyCallback`
-/// (`OpenKey.mm:720-790`): given the engine's decision, drive the sink and the
-/// `_syncKey` stack, and report swallow / start-new-session.
+/// Given the engine's decision for one KeyDown, drive the sink and the
+/// `sync_key` stack, and report swallow / start-new-session.
 pub fn dispatch<S: EventSink>(
     sink: &mut S,
     ctx: &mut InjectCtx,
@@ -183,7 +178,7 @@ pub fn dispatch<S: EventSink>(
 ) -> DispatchResult {
     match snap.code {
         HookCode::DoNothing => {
-            // `OpenKey.mm:720-738` — only the 2-byte tables maintain `_syncKey`.
+            // Only the 2-byte tables maintain `sync_key`.
             if is_double_code(ctx.code_table) {
                 match snap.ext_code {
                     1 => ctx.sync_key.clear(), // break key
@@ -217,7 +212,7 @@ pub fn dispatch<S: EventSink>(
         HookCode::WillProcess | HookCode::Restore | HookCode::RestoreAndStartNewSession => {
             let mut bpc = snap.backspace_count;
 
-            // Autocomplete fix (`OpenKey.mm:742-754`).
+            // Autocomplete fix.
             if ctx.should_use_recommend_workaround() && snap.ext_code != 4 {
                 if ctx.fix_chromium_browser && ctx.quirks().unicode_compound_app_exact {
                     // TODO(Task 9/10): chromium Shift+Left workaround. Off by
@@ -235,7 +230,7 @@ pub fn dispatch<S: EventSink>(
                 }
             }
 
-            // Selection replacement (`OpenKey.mm:756-761`).
+            // Selection replacement.
             if ctx.should_use_selection_replacement() && bpc > 0 {
                 for _ in 0..bpc {
                     send_shift_left_arrow(sink, ctx);
@@ -243,14 +238,14 @@ pub fn dispatch<S: EventSink>(
                 bpc = 0;
             }
 
-            // Backspaces (`OpenKey.mm:764-768`).
+            // Backspaces.
             if bpc > 0 && (bpc as usize) < MAX_BUFF {
                 for _ in 0..bpc {
                     send_backspace(sink, ctx);
                 }
             }
 
-            // New characters (`OpenKey.mm:771-785`).
+            // New characters.
             let restore = match snap.code {
                 HookCode::Restore => Some(RestoreKey {
                     keycode: snap.keycode,
@@ -311,10 +306,10 @@ pub fn dispatch<S: EventSink>(
     }
 }
 
-/// `SendNewCharString` (`OpenKey.mm:423-513`), the non-macro path: emit the
-/// transformed characters (reversed `char_data`), chunked to `CHUNK` UTF-16
-/// units per event, appending the re-emitted key for `Restore*`. Returns
-/// whether `start_new_session` should run (for `RestoreAndStartNewSession`).
+/// The non-macro path: emit the transformed characters (reversed `char_data`),
+/// chunked to `CHUNK` UTF-16 units per event, appending the re-emitted key for
+/// `Restore*`. Returns whether `start_new_session` should run (for
+/// `RestoreAndStartNewSession`).
 fn send_new_char_string<S: EventSink>(
     sink: &mut S,
     ctx: &mut InjectCtx,
@@ -343,7 +338,6 @@ fn send_new_char_string<S: EventSink>(
     let mut start_new = false;
     if !will_continue {
         if let Some(rk) = restore {
-            // `OpenKey.mm:484-491`.
             if key_code_to_character(rk.keycode as u32) != 0 {
                 let caps_bit = if rk.caps { CAPS_MASK } else { 0 };
                 let ch = key_code_to_character(rk.keycode as u32 | caps_bit) as u16;
@@ -357,8 +351,7 @@ fn send_new_char_string<S: EventSink>(
         }
     }
 
-    // Post: exactly `CHUNK` units when continuing (`OpenKey.mm:498`), else the
-    // whole buffer.
+    // Post: exactly `CHUNK` units when continuing, else the whole buffer.
     let end = if will_continue {
         CHUNK.min(buf.len())
     } else {
@@ -378,8 +371,7 @@ fn send_new_char_string<S: EventSink>(
 }
 
 /// Encode one `char_data`/`macro_data` cell into `buf` (UTF-16 units) for the
-/// active code table, pushing `_syncKey` lengths exactly as `SendNewCharString`
-/// does (`OpenKey.mm:439-480`).
+/// active code table, pushing `sync_key` lengths.
 fn encode_cell(ctx: &mut InjectCtx, temp: u32, buf: &mut Vec<u16>) {
     if temp & PURE_CHARACTER_MASK != 0 {
         buf.push(temp as u16);
@@ -423,9 +415,9 @@ fn encode_cell(ctx: &mut InjectCtx, temp: u32, buf: &mut Vec<u16>) {
     }
 }
 
-/// `SendKeyCode` (`OpenKey.mm:267-337`): emit a single cell either as a raw
-/// keystroke (keycode cell) or as encoded Unicode (char-code cell). Used for
-/// step-by-step mode, the `Restore` control-key re-emit, and macros.
+/// Emit a single cell either as a raw keystroke (keycode cell) or as encoded
+/// Unicode (char-code cell). Used for step-by-step mode, the `Restore`
+/// control-key re-emit, and macros.
 fn send_key_code<S: EventSink>(sink: &mut S, ctx: &mut InjectCtx, data: u32) {
     let new_char = data as u16;
     if data & CHAR_CODE_MASK == 0 {
@@ -463,15 +455,15 @@ fn send_key_code<S: EventSink>(sink: &mut S, ctx: &mut InjectCtx, data: u32) {
     }
 }
 
-/// `SendBackspace` (`OpenKey.mm:369-382`): one backspace, plus a second for a
-/// 2-unit character on the 2-byte tables (suppressed for Unicode Compound in a
-/// compound-hostile app), then pop `_syncKey`.
+/// One backspace, plus a second for a 2-unit character on the 2-byte tables
+/// (suppressed for Unicode Compound in a compound-hostile app), then pop
+/// `sync_key`.
 fn send_backspace<S: EventSink>(sink: &mut S, ctx: &mut InjectCtx) {
     sink.backspace();
     if is_double_code(ctx.code_table) {
-        // OpenKey calls `_syncKey.back()` unguarded (UB if empty). We guard:
-        // in normal operation the stack depth tracks what we sent, so it is
-        // non-empty exactly when OpenKey would read it.
+        // Guard against an empty stack: `sync_key.back()` would be UB if empty.
+        // In normal operation the stack depth tracks what we sent, so it is
+        // non-empty exactly when it needs to be read.
         if let Some(&last) = ctx.sync_key.last() {
             if last > 1
                 && !(ctx.code_table == CodeTable::UnicodeCompound
@@ -484,8 +476,8 @@ fn send_backspace<S: EventSink>(sink: &mut S, ctx: &mut InjectCtx) {
     }
 }
 
-/// `SendShiftAndLeftArrow` (`OpenKey.mm:384-406`): like `send_backspace` but
-/// with Shift+Left (extend selection) instead of Backspace.
+/// Like `send_backspace` but with Shift+Left (extend selection) instead of
+/// Backspace.
 fn send_shift_left_arrow<S: EventSink>(sink: &mut S, ctx: &mut InjectCtx) {
     sink.shift_left_arrow();
     if is_double_code(ctx.code_table) {
@@ -501,7 +493,7 @@ fn send_shift_left_arrow<S: EventSink>(sink: &mut S, ctx: &mut InjectCtx) {
     }
 }
 
-/// `SendEmptyCharacter` (`OpenKey.mm:339-356`).
+/// Send the "empty" character (ZWNJ or NARROW NO-BREAK SPACE per app quirk).
 fn send_empty_character<S: EventSink>(sink: &mut S, ctx: &mut InjectCtx) {
     if is_double_code(ctx.code_table) {
         ctx.sync_key.push(1);
@@ -510,7 +502,7 @@ fn send_empty_character<S: EventSink>(sink: &mut S, ctx: &mut InjectCtx) {
     sink.unicode_string(&[ch]);
 }
 
-/// `SendPureCharacter` (`OpenKey.mm:253-265`).
+/// Send a "pure" character (passed through verbatim), tracking `sync_key`.
 fn send_pure_character<S: EventSink>(sink: &mut S, ctx: &mut InjectCtx, ch: u16) {
     sink.unicode_string(&[ch]);
     if is_double_code(ctx.code_table) {
@@ -518,8 +510,8 @@ fn send_pure_character<S: EventSink>(sink: &mut S, ctx: &mut InjectCtx, ch: u16)
     }
 }
 
-/// `handleMacro` (`OpenKey.mm:544-570`). Not exercised by default (no macros are
-/// loaded in this task), but ported for fidelity.
+/// Expand and emit a macro. Not exercised by default (no macros are loaded in
+/// this task), but ported for fidelity.
 fn handle_macro<S: EventSink>(sink: &mut S, ctx: &mut InjectCtx, snap: &HookSnapshot) {
     let mut bpc = snap.backspace_count;
     if ctx.should_use_recommend_workaround() {
@@ -540,7 +532,7 @@ fn handle_macro<S: EventSink>(sink: &mut S, ctx: &mut InjectCtx, snap: &HookSnap
             }
         }
     }
-    // Trailing key (`OpenKey.mm:569`) — Shift only, not CapsLock.
+    // Trailing key - Shift only, not CapsLock.
     let caps_bit = if snap.shift { CAPS_MASK } else { 0 };
     send_key_code(sink, ctx, snap.keycode as u32 | caps_bit);
 }
@@ -675,7 +667,7 @@ mod tests {
         let mut ctx = ctx(CodeTable::UnicodeCompound, &mut sk);
         let mut buf = Vec::new();
         encode_cell(&mut ctx, e_nang(CodeTable::UnicodeCompound), &mut buf);
-        // 0xA0EA: hi = 5, base = 0x00EA (ê), mark = _unicodeCompoundMark[4]=0x0323.
+        // 0xA0EA: hi = 5, base = 0x00EA (ê), mark = UNICODE_COMPOUND_MARK[4]=0x0323.
         assert_eq!(buf, vec![0x00EA, 0x0323]);
         assert_eq!(sk, vec![2]);
     }

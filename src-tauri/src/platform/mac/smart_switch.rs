@@ -3,17 +3,16 @@
 //!
 //! The [`SmartSwitchTable`] itself (the `map<bundle, packed>` + read cache)
 //! lives in the engine crate; this module is the macOS glue that reads the
-//! current language/code-table from [`SharedConfig`], runs OpenKey's
-//! `OnActiveAppChanged` decision against the table, and applies the result.
+//! current language/code-table from [`SharedConfig`], runs the active-app
+//! decision against the table, and applies the result.
 //!
-//! Ports `OnActiveAppChanged` (`OpenKey.mm:207-226`) and `OnInputMethodChanged`
-//! (`OpenKey.mm:237-242`). One deliberate divergence: OpenKey assigns the whole
-//! packed value to `vLanguage` (`vLanguage = _languageTemp`), which corrupts
-//! `vLanguage` when the stored code-table bits are non-zero (a latent OpenKey
-//! bug that never bites because most users keep code table 0). VNKey's `enabled`
-//! flag is strictly 0/1, so [`resolve_active_app`] restores only the packed
-//! language bit (`_languageTemp & 1`) and restores the code table through the
-//! separate remember-code branch — the evident intent.
+//! One deliberate divergence from the original: it assigns the whole packed
+//! value to the language field, which corrupts it when the stored code-table
+//! bits are non-zero (a latent bug that never bites because most users keep
+//! code table 0). VNKey's `enabled` flag is strictly 0/1, so
+//! [`resolve_active_app`] restores only the packed language bit (`& 1`) and
+//! restores the code table through the separate remember-code branch - the
+//! evident intent.
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -25,7 +24,7 @@ use vnkey_engine::{CodeTable, SmartSwitchTable};
 use super::ffi;
 use crate::state::{EngineCore, SharedConfig};
 
-/// The `vLanguage | (vCodeTable << 1)` host packing OpenKey stores per app.
+/// The `language | (code_table << 1)` host packing stored per app.
 fn pack_status(enabled: bool, code_table: CodeTable) -> i32 {
     enabled as i32 | ((code_table as i32) << 1)
 }
@@ -43,10 +42,10 @@ pub struct SmartSwitchDecision {
     pub registered: bool,
 }
 
-/// `OnActiveAppChanged` (`OpenKey.mm:207-226`): look the app up (registering it
-/// with the current status on a miss) and decide what to restore. All integer
-/// arithmetic mirrors the C++ (including the `-1` miss sentinel's arithmetic
-/// right shift), so the language/code-table branches match OpenKey exactly.
+/// Look the app up (registering it with the current status on a miss) and
+/// decide what to restore. All integer arithmetic mirrors the C++ (including
+/// the `-1` miss sentinel's arithmetic right shift), so the language/code-table
+/// branches match the original exactly.
 pub fn resolve_active_app(
     table: &mut SmartSwitchTable,
     bundle_id: &str,
@@ -64,7 +63,7 @@ pub fn resolve_active_app(
 
     let mut decision = SmartSwitchDecision::default();
 
-    // Language: `if ((_languageTemp & 0x01) != vLanguage)`.
+    // Language: does the stored language bit differ from the current language?
     if (stored & 0x01) != current_lang {
         if stored != -1 {
             decision.new_enabled = Some((stored & 0x01) == 1);
@@ -73,10 +72,10 @@ pub fn resolve_active_app(
         }
     }
 
-    // Code table: `if (vRememberCode && (_languageTemp >> 1) != vCodeTable)`.
+    // Code table: is remember-code on and the stored code-table bits differ?
     if remember_code && (stored >> 1) != current_code {
         if stored != -1 {
-            // `_languageTemp >> 1` is a valid table index for any stored value
+            // `stored >> 1` is a valid table index for any stored value
             // (max packed is `1 | (4 << 1) = 9`, so the index is 0..=4 and the
             // packed byte is never negative); a corrupt out-of-range index is
             // ignored rather than applied.
@@ -99,12 +98,12 @@ pub fn resolve_active_app(
 /// [`crate::tray::apply_tray_state`] directly rather than posting through
 /// [`crate::tray::update_tray`].
 pub fn on_active_app(app: &AppHandle, engine: &Mutex<EngineCore>, config: &SharedConfig, own_bundle: Option<&str>) {
-    // `queryFrontMostApp` — safe here because we are on the main thread.
+    // Safe here because we are on the main thread.
     let Some(bundle_id) = ffi::frontmost_bundle_id() else {
         return;
     };
-    // OpenKey's `!= OPENKEY_BUNDLE` guard: don't let VNKey's own windows
-    // (settings) overwrite the target app's cached language.
+    // Skip VNKey's own bundle: don't let VNKey's own windows (settings)
+    // overwrite the target app's cached language.
     if own_bundle == Some(bundle_id.as_str()) {
         return;
     }
@@ -163,12 +162,11 @@ pub fn on_active_app(app: &AppHandle, engine: &Mutex<EngineCore>, config: &Share
     }
 }
 
-/// Remember the user's manual language switch for the frontmost app
-/// (`OnInputMethodChanged`, `OpenKey.mm:237-242`). Called on the tap thread
-/// from the switch-hotkey path, with the engine already locked. Reads the
-/// post-switch `enabled` value from `config`. Persistence happens separately
-/// -- `tap.rs` calls [`persist_after_manual_switch`] right after this
-/// (fire-and-forget), since disk I/O must never run on the tap thread.
+/// Remember the user's manual language switch for the frontmost app. Called on
+/// the tap thread from the switch-hotkey path, with the engine already locked.
+/// Reads the post-switch `enabled` value from `config`. Persistence happens
+/// separately -- `tap.rs` calls [`persist_after_manual_switch`] right after
+/// this (fire-and-forget), since disk I/O must never run on the tap thread.
 pub fn record_manual_switch(core: &mut EngineCore, config: &SharedConfig) {
     if !config.use_smart_switch_key.load(Ordering::Relaxed) {
         return;
