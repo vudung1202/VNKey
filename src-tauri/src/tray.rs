@@ -173,7 +173,7 @@ fn set_tray_title(tray: &tauri::tray::TrayIcon, letter: &'static str) {
         item.setLength(26.0);
         let Some(button) = item.button(mtm) else { return };
 
-        let font = NSFont::boldSystemFontOfSize(19.0);
+        let font = NSFont::boldSystemFontOfSize(18.0);
         let offset = NSNumber::numberWithDouble(-1.5);
         let font_obj: &AnyObject = &font;
         let offset_obj: &AnyObject = &offset;
