@@ -89,22 +89,6 @@ export function restartApp(): Promise<void> {
   return invoke("restart_app");
 }
 
-export function hasOpenKeyData(): Promise<boolean> {
-  return invoke("has_openkey_data");
-}
-
-export function importOpenKeySettings(): Promise<Settings> {
-  return invoke("import_openkey_settings");
-}
-
-// Task 15 review fix: persists `Settings.first_run_offer_shown = true` for
-// the "declined the first-run OpenKey import offer" path (the "accepted"
-// path's `importOpenKeySettings()` sets the flag itself). Either way the
-// offer is never asked again.
-export function markFirstRunOfferShown(): Promise<Settings> {
-  return invoke("mark_first_run_offer_shown");
-}
-
 export function checkUpdate(): Promise<UpdateInfo | null> {
   return invoke("check_update");
 }

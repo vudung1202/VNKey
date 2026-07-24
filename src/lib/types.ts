@@ -37,7 +37,6 @@ export interface Settings {
   run_on_startup: boolean;
   show_ui_on_startup: boolean;
   dont_check_update: boolean;
-  first_run_offer_shown: boolean;
   // UI appearance: 0 = follow OS, 1 = light, 2 = dark. See lib/theme.ts.
   theme: number;
 

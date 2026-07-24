@@ -148,11 +148,4 @@ export const strings = {
     openSettings: "Mở cài đặt Trợ năng",
     restart: "Khởi động lại VNKey",
   },
-
-  // Task 15: the first-run "import from OpenKey?" offer (a native confirm
-  // dialog -- `footer.yes`/`footer.no` supply its Có/Không button labels).
-  firstRun: {
-    title: "Nhập dữ liệu OpenKey",
-    offer: "Phát hiện dữ liệu OpenKey. Nhập cấu hình, gõ tắt và ghi nhớ ứng dụng từ OpenKey?",
-  },
 };

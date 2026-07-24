@@ -161,18 +161,6 @@ pub(crate) fn set_convert_hotkey_settings(mut s: Settings, hotkey: u32) -> Setti
     s
 }
 
-/// Task 15 review fix: mark the first-run OpenKey-import offer as shown --
-/// pure so it's unit-testable without an `AppHandle`, same shape as the
-/// other `set_*_settings` helpers above. Used by [`mark_first_run_offer_shown`]
-/// for the "declined the offer" path; the "accepted" path
-/// ([`import_openkey_settings`]) sets the flag directly on the imported
-/// settings instead of calling this, since it already replaces the whole
-/// struct.
-pub(crate) fn mark_first_run_offer_shown_settings(mut s: Settings) -> Settings {
-    s.first_run_offer_shown = true;
-    s
-}
-
 #[tauri::command]
 pub fn get_settings() -> Settings {
     Settings::load()
@@ -306,47 +294,6 @@ pub fn open_accessibility_settings() {
 #[tauri::command]
 pub fn restart_app(app: AppHandle) {
     app.restart();
-}
-
-#[tauri::command]
-pub fn has_openkey_data() -> bool {
-    crate::settings::openkey_import::has_openkey_data()
-}
-
-#[tauri::command]
-pub fn import_openkey_settings(app: AppHandle) -> Result<Settings, String> {
-    let imported = crate::settings::openkey_import::import_openkey_settings()?;
-
-    let _ = crate::settings::save_macros(&imported.macros);
-    let _ = crate::settings::save_smart_switch(&imported.smart_switch);
-
-    let engine = app.state::<Arc<Mutex<EngineCore>>>();
-    let mut core = engine.lock();
-    core.engine.set_macro_table(imported.macros);
-    core.smart_switch = imported.smart_switch;
-    drop(core);
-
-    // Task 15 review fix: importing counts as "the offer was answered" --
-    // the imported settings otherwise carry `first_run_offer_shown: false`
-    // (unknown to OpenKey, so `settings_from_dict` leaves it at
-    // `Settings::default()`'s value), which would re-ask on the next launch.
-    let settings = apply_and_broadcast(&app, |_| Settings { first_run_offer_shown: true, ..imported.settings });
-    crate::events::macros_changed(&app);
-
-    Ok(settings)
-}
-
-/// Task 15 review fix: persist that the first-run OpenKey-import offer has
-/// been shown, for the "declined" path -- the "accepted" path
-/// ([`import_openkey_settings`]) sets the flag itself. Either way the offer
-/// is never asked again: `ControlPanel.tsx`'s effect checks
-/// `settings.first_run_offer_shown` (not `settings.json`'s mere existence,
-/// which is what let the offer silently go unreachable for an
-/// untrusted-first-launch install -- see the flag's doc comment in
-/// `settings/mod.rs`).
-#[tauri::command]
-pub fn mark_first_run_offer_shown(app: AppHandle) -> Settings {
-    apply_and_broadcast(&app, mark_first_run_offer_shown_settings)
 }
 
 /// No release feed is wired up yet -- there's no known GitHub (or other)
@@ -540,16 +487,6 @@ mod tests {
         let s = Settings::default();
         let updated = set_convert_hotkey_settings(s, 0x5678);
         assert_eq!(updated, Settings { convert_hotkey: 0x5678, ..s });
-    }
-
-    /// Task 15 review fix: the "declined the offer" path -- persists the
-    /// flag so the offer never asks again, and touches nothing else.
-    #[test]
-    fn mark_first_run_offer_shown_settings_only_changes_the_flag() {
-        let s = Settings::default();
-        assert!(!s.first_run_offer_shown, "precondition: offer not yet shown");
-        let updated = mark_first_run_offer_shown_settings(s);
-        assert_eq!(updated, Settings { first_run_offer_shown: true, ..s });
     }
 
     #[test]

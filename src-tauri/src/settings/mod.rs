@@ -7,16 +7,9 @@
 //! already have an OpenKey-compatible blob format via
 //! [`MacroTable`]/[`SmartSwitchTable`]).
 //!
-//! `save`/`save_macros`/`save_smart_switch` and the `openkey_import` module
-//! are this task's deliverables, but nothing in the crate calls them yet --
-//! that's the settings IPC commands/UI and the first-run "import from
-//! OpenKey?" prompt, both later tasks. Allow the resulting dead-code/
-//! unused-import warnings for this module tree rather than wiring premature
-//! callers just to silence the compiler.
+//! Allow dead-code/unused-import warnings across this module tree rather than
+//! trimming persistence helpers that only some build configs reference.
 #![allow(dead_code, unused_imports)]
-
-#[cfg(target_os = "macos")]
-pub mod openkey_import;
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -37,9 +30,8 @@ const DEFAULT_SWITCH_KEY_STATUS: u32 = 0x7A00_0206;
 /// the convert-tool quick-hotkey.
 const EMPTY_HOTKEY: u32 = 0xFE00_00FE;
 
-/// VNKey's persisted configuration. Field names map 1:1 to OpenKey's
-/// `NSUserDefaults` keys (see `openkey_import`'s doc comments for the exact
-/// key names); grouped as documented in the task brief.
+/// VNKey's persisted configuration, grouped by concern (engine / platform /
+/// convert tool).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Settings {
     pub schema_version: u32,
@@ -79,22 +71,6 @@ pub struct Settings {
     pub run_on_startup: bool,
     pub show_ui_on_startup: bool,
     pub dont_check_update: bool,
-    /// Task 15 review fix: whether the first-run OpenKey-import offer has
-    /// already been evaluated (with permission granted) and answered --
-    /// Yes or No doesn't matter, just "asked" -- so it's never asked again.
-    /// `#[serde(default)]` so a `settings.json` written before this field
-    /// existed still deserializes (missing key -> `false`), i.e. those
-    /// installs still get the offer once.
-    ///
-    /// Deliberately NOT derived from `settings.json`'s mere existence (the
-    /// bug this field fixes): `platform::mac::start`'s `Settings::load()`
-    /// auto-persists the file on the very first launch regardless of
-    /// Accessibility permission, well before the offer can ever be
-    /// evaluated with permission granted -- so file-existence alone was
-    /// already `true` by the time an untrusted-first-launch user granted
-    /// permission and relaunched, silently skipping the offer forever.
-    #[serde(default)]
-    pub first_run_offer_shown: bool,
     /// UI appearance preference: 0 = follow the OS (default), 1 = light,
     /// 2 = dark. Frontend-only -- the engine, tray, and platform layer never
     /// read it; it exists here so the choice persists and broadcasts to every
@@ -131,8 +107,7 @@ impl Default for Settings {
     ///   instead of `vSendKeyStepByStep`. Both source values happen to be 0
     ///   at first run, so the bug is numerically invisible here, but
     ///   `send_key_step_by_step` is still assigned from the conceptually
-    ///   correct source (see `openkey_import`'s regression test, where the
-    ///   two keys are given different values).
+    ///   correct source.
     fn default() -> Self {
         Settings {
             schema_version: SCHEMA_VERSION,
@@ -170,7 +145,6 @@ impl Default for Settings {
             run_on_startup: true,
             show_ui_on_startup: false,
             dont_check_update: false,
-            first_run_offer_shown: false,
             theme: 0,
 
             // -- Convert tool --
@@ -434,7 +408,6 @@ mod tests {
         assert!(!s.show_icon_on_dock);
         assert!(!s.show_ui_on_startup);
         assert!(!s.dont_check_update);
-        assert!(!s.first_run_offer_shown);
     }
 
     #[test]
@@ -459,7 +432,7 @@ mod tests {
             input_type: InputType::Vni as u8,
             switch_key_status: 0x1234_5678,
             convert_hotkey: 0xABCD,
-            first_run_offer_shown: true,
+            theme: 2,
             ..Settings::default()
         };
         let json = serde_json::to_string(&s).expect("serialize");
@@ -467,31 +440,26 @@ mod tests {
         assert_eq!(s, restored);
     }
 
-    /// Task 15 review fix regression: a `settings.json` written before
-    /// `first_run_offer_shown` existed (every other real field present and
-    /// non-default, but no `"first_run_offer_shown"` key at all) must still
-    /// deserialize with those other fields intact -- NOT fall back to
-    /// `Settings::default()` wholesale, which would silently reset the
-    /// user's actual configuration. Only the new field should default to
-    /// `false` (so pre-existing installs still get the first-run offer
-    /// once). Fails without `#[serde(default)]` on the field: a plain
-    /// `#[derive(Deserialize)]` treats a missing field as a hard parse
-    /// error, and `load_from`'s `.ok()` fallback would then return
-    /// `Settings::default()` entirely, losing `language`/`input_type` too
-    /// (confirmed by temporarily removing the attribute and re-running this
-    /// test, which then fails on the `language`/`input_type` assertions).
+    /// A `settings.json` written before the `#[serde(default)]` `theme` field
+    /// existed (every other field present and non-default, but no `"theme"`
+    /// key) must still deserialize with those other fields intact -- NOT fall
+    /// back to `Settings::default()` wholesale, which would silently reset the
+    /// user's configuration. Only the missing field defaults (to 0). Without
+    /// `#[serde(default)]` a plain derive treats the missing key as a hard
+    /// parse error, and `load_from`'s `.ok()` fallback would then return
+    /// `Settings::default()` entirely, losing `language`/`input_type` too.
     #[test]
-    fn old_settings_json_without_first_run_offer_shown_key_still_loads_other_fields() {
+    fn old_settings_json_without_theme_key_still_loads_other_fields() {
         let path = tempdir().join("settings.json");
         let old = Settings { language: 0, input_type: InputType::Vni as u8, ..Settings::default() };
         let mut json: serde_json::Value = serde_json::to_value(old).expect("serialize to Value");
         json.as_object_mut()
             .expect("Settings serializes to a JSON object")
-            .remove("first_run_offer_shown");
-        fs::write(&path, serde_json::to_vec(&json).expect("serialize without the new key")).expect("write fixture");
+            .remove("theme");
+        fs::write(&path, serde_json::to_vec(&json).expect("serialize without the key")).expect("write fixture");
 
         let loaded = Settings::load_from(&path);
-        assert!(!loaded.first_run_offer_shown, "a missing key must default to false");
+        assert_eq!(loaded.theme, 0, "a missing key must default to 0");
         assert_eq!(loaded.language, 0, "other persisted fields must survive, not reset to Settings::default()");
         assert_eq!(loaded.input_type, InputType::Vni as u8);
     }

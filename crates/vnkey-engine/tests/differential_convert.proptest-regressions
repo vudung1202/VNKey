@@ -1,7 +1,0 @@
-# Seeds for failure cases proptest has generated in the past. It is
-# automatically read and these particular cases re-run before any
-# novel cases are generated.
-#
-# It is recommended to check this file in to source control so that
-# everyone who runs the test benefits from these saved cases.
-cc a4f617d074d3a604288aa7a3530c2910107c8cab3b969aebeb0f1380556adf65 # shrinks to src = "Â", from = UnicodeCompound, to = VniWindows, case = None
