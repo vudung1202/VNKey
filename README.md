@@ -44,6 +44,9 @@ tảng nằm trong `src-tauri`. Đây là ranh giới quan trọng nhất của 
 engine test được độc lập (golden + unit test), tầng macOS chỉ test được bằng
 unit test (mock) + kiểm tay.
 
+Chi tiết bên trong (luồng một phím, mô hình luồng, giao thức engine/host):
+xem [docs/architecture.md](./docs/architecture.md).
+
 ## Build từ nguồn
 
 **Yêu cầu:**

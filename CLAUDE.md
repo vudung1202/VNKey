@@ -113,6 +113,8 @@ Ký tự sentinel trong `key_of`: `\u{8}` = DELETE, `\n` = ENTER, `\u{1b}` = ESC
 
 ## Tài liệu khác
 
+- `docs/architecture.md` - **đọc trước khi sửa sâu**: luồng một phím, mô hình
+  luồng/khoá, giao thức `HookState`, cách đồng bộ cấu hình
 - `README.md` - build, cấp quyền, tính năng (cho người dùng)
 - `docs/PARITY-CHECKLIST.md` - checklist kiểm thử tay
 - `docs/dev-signing.md` - tạo cert tự-ký để quyền không bị quên mỗi lần build
