@@ -7,9 +7,6 @@ VNKey là bộ gõ tiếng Việt cho macOS, viết bằng Rust +
 macOS dùng `CGEventTap` viết bằng Rust/objc2, giao diện Tauri +
 React/TypeScript.
 
-Thuật toán gõ tiếng Việt tham khảo từ
-[OpenKey](https://github.com/tuyenvm/OpenKey).
-
 > Repo gốc dự án (placeholder, sẽ thay khi có repo thật):
 > **https://github.com/yourname/VNKey** <!-- TODO -->
 
@@ -20,8 +17,7 @@ typing engine is pure Rust (no FFI, no C++) covered by a golden test suite.
 The macOS integration (key interception/injection, hotkeys, smart per-app
 switching, sleep/wake handling) is written directly against
 AppKit/CoreGraphics via `objc2`, and the UI (Control Panel, macro editor,
-convert tool, About) is a Tauri v2 + React/TypeScript app. The Vietnamese
-typing algorithm is derived from [OpenKey](https://github.com/tuyenvm/OpenKey).
+convert tool, About) is a Tauri v2 + React/TypeScript app.
 See the sections below (in Vietnamese) for build instructions, the
 Accessibility permission grant, and the test suite.
 
@@ -170,7 +166,5 @@ app thật...) không thể test tự động vì phụ thuộc vào `AppKit`/qu
 thống -- xem [docs/PARITY-CHECKLIST.md](./docs/PARITY-CHECKLIST.md) để tự
 kiểm tay.
 
-## Ghi công
-
 Thuật toán gõ tiếng Việt (bảng mã, quy tắc đặt dấu, kiểm tra chính tả) tham
-khảo từ [OpenKey](https://github.com/tuyenvm/OpenKey) của Mai Vũ Tuyên.
+khảo từ [OpenKey](https://github.com/tuyenvm/OpenKey).
