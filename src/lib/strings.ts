@@ -34,6 +34,8 @@ export const strings = {
     upperCaseFirstChar: "Viết Hoa chữ cái đầu câu",
     rememberCode: "Tự ghi nhớ bảng mã theo ứng dụng",
     tempOffEngine: "Tạm tắt VNKey bằng phím ⌘",
+    autoRestoreEnglish: "Tự động khôi phục từ tiếng Anh",
+    escRestoreEnglish: "Nhấn ESC để khôi phục từ đang gõ",
     otherLanguage: "Tắt tiếng Việt khi bộ gõ hệ thống khác tiếng Anh",
   },
 

@@ -29,6 +29,12 @@ const DEFAULT_SWITCH_KEY_STATUS: u32 = 0x7A00_0206;
 /// The "no hotkey configured" sentinel used for the convert-tool quick-hotkey.
 const EMPTY_HOTKEY: u32 = 0xFE00_00FE;
 
+/// `#[serde(default)]` yields `false` for a `bool`; fields that must default
+/// to on point at this instead.
+fn default_true() -> bool {
+    true
+}
+
 /// VNKey's persisted configuration, grouped by concern (engine / platform /
 /// convert tool).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -62,6 +68,22 @@ pub struct Settings {
     /// the field's former name loading with this setting intact.
     #[serde(alias = "temp_off_openkey")]
     pub temp_off_engine: bool,
+    /// Restore raw keystrokes at the end of a word that cannot be Vietnamese,
+    /// so English typed in Telex/VNI comes out as typed.
+    ///
+    /// `#[serde(default = "default_true")]` rather than a plain default: the
+    /// key is absent from every `settings.json` written before this field
+    /// existed, so the default is what those installs get. That is the only
+    /// way "on by default" reaches existing users - flipping the older
+    /// `restore_if_wrong_spelling` default would not, since that key is
+    /// already present in those files with an explicit value.
+    #[serde(default = "default_true")]
+    pub auto_restore_english: bool,
+    /// Let ESC undo the composition of the word in progress, including for
+    /// valid Vietnamese words (the only way to type English that collides with
+    /// a real syllable, e.g. `this`, `mix`, `test`).
+    #[serde(default = "default_true")]
+    pub esc_restore_english: bool,
     pub quick_telex: bool,
 
     // -- Platform --
@@ -136,6 +158,8 @@ impl Default for Settings {
             remember_code: true,
             other_language: true,
             temp_off_engine: false,
+            auto_restore_english: true,
+            esc_restore_english: true,
             quick_telex: false,
 
             // -- Platform --
@@ -207,6 +231,8 @@ impl Settings {
             remember_code: self.remember_code,
             other_language: self.other_language,
             temp_off_engine: self.temp_off_engine,
+            auto_restore_english: self.auto_restore_english,
+            esc_restore_english: self.esc_restore_english,
         }
     }
 
@@ -461,6 +487,27 @@ mod tests {
         let loaded = Settings::load_from(&path);
         assert_eq!(loaded.theme, 0, "a missing key must default to 0");
         assert_eq!(loaded.language, 0, "other persisted fields must survive, not reset to Settings::default()");
+        assert_eq!(loaded.input_type, InputType::Vni as u8);
+    }
+
+    /// The whole point of `default_true`: a `settings.json` written before the
+    /// auto-restore fields existed must come back with them ON, otherwise
+    /// "enabled by default" would only ever reach brand-new installs. Every
+    /// other stored value must survive untouched.
+    #[test]
+    fn settings_json_without_the_auto_restore_keys_enables_them() {
+        let path = tempdir().join("settings.json");
+        let old = Settings { language: 0, input_type: InputType::Vni as u8, ..Settings::default() };
+        let mut json: serde_json::Value = serde_json::to_value(old).expect("serialize to Value");
+        let obj = json.as_object_mut().expect("Settings serializes to a JSON object");
+        obj.remove("auto_restore_english");
+        obj.remove("esc_restore_english");
+        fs::write(&path, serde_json::to_vec(&json).expect("serialize without the keys")).expect("write fixture");
+
+        let loaded = Settings::load_from(&path);
+        assert!(loaded.auto_restore_english, "missing key must default to on");
+        assert!(loaded.esc_restore_english, "missing key must default to on");
+        assert_eq!(loaded.language, 0, "other persisted fields must survive");
         assert_eq!(loaded.input_type, InputType::Vni as u8);
     }
 

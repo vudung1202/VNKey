@@ -41,7 +41,7 @@ fn key_of(c: char) -> (u16, u8) {
         '5' => KEY_5, '6' => KEY_6, '7' => KEY_7, '8' => KEY_8, '9' => KEY_9,
         '[' => KEY_LEFT_BRACKET, ']' => KEY_RIGHT_BRACKET,
         ' ' => KEY_SPACE, '.' => KEY_DOT, ',' => KEY_COMMA,
-        '\u{8}' => KEY_DELETE, '\n' => KEY_ENTER,
+        '\u{8}' => KEY_DELETE, '\n' => KEY_ENTER, '\u{1b}' => KEY_ESC,
         other => panic!("golden test: unmapped char {other:?}"),
     };
     (code, if up { 1 } else { 0 })
@@ -67,17 +67,21 @@ fn apply(field: &mut Vec<char>, orig: char, is_delete: bool, hs: &HookState) {
         DoNothing => {
             if is_delete {
                 field.pop();
-            } else {
+            } else if orig != '\0' {
+                // A key with no printable form (ESC) reaches the app but
+                // inserts nothing.
                 field.push(orig);
             }
         }
-        WillProcess | Restore | RestoreAndStartNewSession => {
+        WillProcess | Restore | RestoreAndStartNewSession | RestoreAndSwallow => {
             for _ in 0..hs.backspace_count {
                 field.pop();
             }
             for i in (0..hs.new_char_count as usize).rev() {
                 field.push(render_cell(hs.char_data[i]));
             }
+            // `RestoreAndSwallow` (the ESC undo) deliberately does not echo its
+            // trigger; the host suppresses it the same way.
             if hs.code == Restore || hs.code == RestoreAndStartNewSession {
                 field.push(orig);
             }
@@ -266,6 +270,68 @@ fn restore_if_wrong_spelling_restores_raw_keys_on_space() {
     let mut o = telex();
     o.restore_if_wrong_spelling = true;
     assert_eq!(type_str(o, "nghasl "), "nghasl ");
+}
+
+/// English words that Telex composes into something that cannot be Vietnamese
+/// come back exactly as typed once the word ends.
+#[test]
+fn auto_restore_english_returns_words_as_typed() {
+    for word in [
+        "text ", "expect ", "user ", "push ", "sort ", "search ", "design ",
+        "with ", "will ", "would ", "what ", "which ", "when ", "your ",
+        "year ", "their ", "work ", "want ", "well ", "way ", "good ", "look ",
+    ] {
+        assert_eq!(type_str(telex(), word), word, "typing {word:?}");
+    }
+    // Same via a break key rather than SPACE.
+    assert_eq!(type_str(telex(), "text."), "text.");
+}
+
+/// The six two-letter words the `english` heuristic is aimed at. Each is also
+/// the Telex spelling of a real syllable, so this is the frequency bet the
+/// module documents, not a linguistic rule.
+#[test]
+fn auto_restore_english_handles_the_two_letter_list() {
+    for word in ["is ", "us ", "as ", "of ", "if ", "or "] {
+        assert_eq!(type_str(telex(), word), word, "typing {word:?}");
+    }
+}
+
+/// Words that ARE valid Vietnamese syllables cannot be detected automatically
+/// (the same limitation gonhanh documents). Pinned so a future improvement is
+/// a deliberate change rather than an accident.
+#[test]
+fn auto_restore_english_cannot_detect_valid_vietnamese_syllables() {
+    assert_eq!(type_str(telex(), "mix "), "mĩ ");
+    assert_eq!(type_str(telex(), "box "), "bõ ");
+    assert_eq!(type_str(telex(), "this "), "thí ");
+    assert_eq!(type_str(telex(), "test "), "tét ");
+}
+
+/// ESC undoes the composition of the word in progress, including for a valid
+/// Vietnamese word -- that is the escape hatch for the case above. The ESC
+/// itself is swallowed, so nothing extra lands in the text.
+#[test]
+fn esc_restores_the_word_in_progress() {
+    assert_eq!(type_str(telex(), "mix\u{1b}"), "mix");
+    assert_eq!(type_str(telex(), "this\u{1b}"), "this");
+    assert_eq!(type_str(telex(), "vieejt\u{1b}"), "vieejt");
+    // Recovers a keystroke the duplicate-mark undo consumed, which the raw
+    // journal exists for: `off` composes to `of` and only the journal still
+    // knows about the second `f`.
+    assert_eq!(type_str(telex(), "off\u{1b}"), "off");
+}
+
+/// ESC with nothing to undo must reach the application untouched, or it would
+/// stop closing dialogs and leaving Vim's insert mode.
+#[test]
+fn esc_passes_through_when_there_is_nothing_to_restore() {
+    let mut e = Engine::new(telex());
+    let hs = e.handle_event(KeyEvent::Keyboard, KeyEventState::KeyDown, KEY_ESC, 0, false);
+    assert_eq!(hs.code, HookCode::DoNothing, "empty buffer");
+
+    // A word that was typed but never composed: still nothing to undo.
+    assert_eq!(type_str(telex(), "things\u{1b}"), "things");
 }
 
 /// The other restore path: a break key (here `.`) rather than SPACE, which

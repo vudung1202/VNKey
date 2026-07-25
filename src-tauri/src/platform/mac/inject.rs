@@ -209,7 +209,10 @@ pub fn dispatch<S: EventSink>(
                 start_new_session: false,
             }
         }
-        HookCode::WillProcess | HookCode::Restore | HookCode::RestoreAndStartNewSession => {
+        HookCode::WillProcess
+        | HookCode::Restore
+        | HookCode::RestoreAndStartNewSession
+        | HookCode::RestoreAndSwallow => {
             let mut bpc = snap.backspace_count;
 
             // Autocomplete fix.
@@ -257,6 +260,11 @@ pub fn dispatch<S: EventSink>(
                     caps: snap.caps,
                     rasns: true,
                 }),
+                // Deliberately no `RestoreKey`: the ESC undo must not echo its
+                // trigger, or a stray ESC reaches the app after the text is
+                // already fixed. `start_new` is set explicitly below instead of
+                // riding on `RestoreKey::rasns`.
+                HookCode::RestoreAndSwallow => None,
                 _ => None,
             };
 
@@ -270,6 +278,9 @@ pub fn dispatch<S: EventSink>(
                     restore,
                     0,
                 );
+                if snap.code == HookCode::RestoreAndSwallow {
+                    start_new = true;
+                }
             } else {
                 let n = snap.new_char_count as usize;
                 if n > 0 && n <= MAX_BUFF {
@@ -281,7 +292,10 @@ pub fn dispatch<S: EventSink>(
                     let caps_bit = if snap.caps { CAPS_MASK } else { 0 };
                     send_key_code(sink, ctx, snap.keycode as u32 | caps_bit);
                 }
-                if snap.code == HookCode::RestoreAndStartNewSession {
+                if matches!(
+                    snap.code,
+                    HookCode::RestoreAndStartNewSession | HookCode::RestoreAndSwallow
+                ) {
                     start_new = true;
                 }
             }

@@ -106,6 +106,10 @@ pub enum HookCode {
     /// Special flag: use for restore key if invalid word with break
     /// character (`,` `.` `"`).
     RestoreAndStartNewSession = 5,
+    /// Restore the raw keystrokes and start a new session, but do NOT re-emit
+    /// the key that triggered it. Used by the ESC undo, where echoing the
+    /// trigger would send a stray ESC to the app after the text is fixed.
+    RestoreAndSwallow = 6,
 }
 
 /// Bytes data sent back to the host application.

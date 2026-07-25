@@ -25,6 +25,8 @@ export interface Settings {
   remember_code: boolean;
   other_language: boolean;
   temp_off_engine: boolean;
+  auto_restore_english: boolean;
+  esc_restore_english: boolean;
   quick_telex: boolean;
 
   // Platform

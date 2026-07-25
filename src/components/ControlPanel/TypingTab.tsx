@@ -8,6 +8,8 @@ const FIELDS: Array<[string, keyof Settings]> = [
   [strings.typingTab.fixRecommendBrowser, "fix_recommend_browser"],
   [strings.typingTab.checkSpelling, "check_spelling"],
   [strings.typingTab.restoreIfWrongSpelling, "restore_if_wrong_spelling"],
+  [strings.typingTab.autoRestoreEnglish, "auto_restore_english"],
+  [strings.typingTab.escRestoreEnglish, "esc_restore_english"],
   [strings.typingTab.allowConsonantZfwj, "allow_consonant_zfwj"],
   [strings.typingTab.tempOffSpelling, "temp_off_spelling"],
   [strings.typingTab.useSmartSwitchKey, "use_smart_switch_key"],

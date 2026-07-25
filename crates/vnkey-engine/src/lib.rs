@@ -9,6 +9,7 @@ pub mod charset;
 mod convert;
 pub mod data;
 mod engine;
+mod english;
 mod input_method;
 pub mod keys;
 mod macros;

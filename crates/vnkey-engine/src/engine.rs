@@ -44,6 +44,10 @@ pub struct Engine {
     pub(crate) use_spell_checking_before: bool,
 
     pub(crate) buf: Buffer,
+    /// Raw keystrokes for the word in progress, kept beside `buf.states`
+    /// because that array is rewound by the duplicate-key undo path. Only the
+    /// ESC restore reads it; see `english`'s module doc.
+    pub(crate) raw: crate::english::RawJournal,
 
     // engine flags / vowel-position scratch (mirror the like-named C++ statics)
     pub(crate) temp_disable_key: bool,
@@ -92,6 +96,7 @@ impl Engine {
             spell_check_on: opts.check_spelling,
             use_spell_checking_before: opts.check_spelling,
             buf: Buffer::new(),
+            raw: crate::english::RawJournal::default(),
             temp_disable_key: false,
             is_corect: false,
             is_changed: false,
@@ -192,6 +197,7 @@ impl Engine {
         self.has_handled_macro = false;
         self.has_handle_quick_consonant = false;
         self.buf.long_word_helper.clear();
+        self.raw.clear();
     }
 
     /// Only flips the *current* spelling flag (`spell_check_on`) when
@@ -302,6 +308,11 @@ impl Engine {
     }
 
     fn restore_last_typing_state(&mut self) {
+        // The word being rebuilt here came from history, not from keys typed
+        // this session, so the raw journal no longer describes it. Dropping it
+        // makes ESC a no-op after a cross-word DELETE rather than replaying
+        // stale keystrokes.
+        self.raw.clear();
         if let Some(data) = self.typing_states.pop() {
             if !data.is_empty() {
                 // Compare the full, untruncated u32 element against KEY_SPACE
@@ -778,8 +789,24 @@ impl Engine {
             self.hook.new_char_count = 0;
             self.hook.ext_code = 1; // word break
 
+            // ESC undo, ahead of the macro/quick-consonant/restore ladder so it
+            // wins over them. Unlike the spelling-driven restore below this is
+            // unconditional: it fires even on a valid Vietnamese word, which is
+            // the only way to type English that collides with a real syllable
+            // ("this" -> thí, "mix" -> mĩ). `!other_control` keeps Cmd/Ctrl+ESC
+            // chords out; `restore_from_raw` returning false (empty buffer, or
+            // nothing composed) leaves `code` at DoNothing so ESC passes
+            // through untouched and Vim/dialogs keep working.
+            let esc_restored = self.opts.esc_restore_english
+                && data == KEY_ESC
+                && !other_control
+                && event == KeyEvent::Keyboard
+                && self.restore_from_raw(HookCode::RestoreAndSwallow);
+
             // check macro feature
-            if self.opts.use_macro
+            if esc_restored {
+                // Already handled; skip the ladder.
+            } else if self.opts.use_macro
                 && Self::is_macro_break_code(data)
                 && !self.has_handled_macro
                 && self.find_macro()
@@ -792,10 +819,18 @@ impl Engine {
                 && Self::is_macro_break_code(data)
             {
                 self.check_quick_consonant();
-            } else if self.opts.restore_if_wrong_spelling && Self::is_word_break(event, data) {
+            } else if (self.opts.restore_if_wrong_spelling || self.opts.auto_restore_english)
+                && Self::is_word_break(event, data)
+            {
                 // restore key if wrong spelling with break-key
                 if !self.temp_disable_key && self.spell_check_on {
                     self.check_spelling(true); // force check spelling
+                }
+                if self.opts.auto_restore_english
+                    && !self.temp_disable_key
+                    && self.looks_like_english_word()
+                {
+                    self.temp_disable_key = true;
                 }
                 if self.temp_disable_key
                     && !self.check_restore_if_wrong_spelling(HookCode::RestoreAndStartNewSession)
@@ -827,6 +862,7 @@ impl Engine {
                 self.will_temp_off_engine = false;
             } else if self.hook.code == HookCode::ReplaceMacro || self.has_handle_quick_consonant {
                 self.buf.index = 0;
+                self.raw.clear();
             }
 
             // insert key for macro function
@@ -856,6 +892,17 @@ impl Engine {
             if !self.temp_disable_key && self.spell_check_on {
                 self.check_spelling(true); // force check spelling
             }
+            // Must run before the ladder below, not inside it: the restore arm
+            // is an `else if`, so a macro or quick-consonant match would
+            // otherwise win before the heuristic is ever consulted. Setting
+            // `temp_disable_key` here also suppresses the quick-consonant arm,
+            // which is intended -- an English word should not get g -> ng.
+            if self.opts.auto_restore_english
+                && !self.temp_disable_key
+                && self.looks_like_english_word()
+            {
+                self.temp_disable_key = true;
+            }
             if self.opts.use_macro && !self.has_handled_macro && self.find_macro() {
                 // macro
                 self.hook.code = HookCode::ReplaceMacro;
@@ -867,7 +914,7 @@ impl Engine {
                 && self.check_quick_consonant()
             {
                 self.space_count += 1;
-            } else if self.opts.restore_if_wrong_spelling
+            } else if (self.opts.restore_if_wrong_spelling || self.opts.auto_restore_english)
                 && self.temp_disable_key
                 && !self.has_handled_macro
             {
@@ -919,6 +966,7 @@ impl Engine {
                 if self.buf.state_index > 0 {
                     self.buf.state_index -= 1;
                 }
+                self.raw.pop();
                 if self.buf.index > 0 {
                     self.buf.index -= 1;
                     self.buf.restore_long_word_helper();
@@ -965,6 +1013,10 @@ impl Engine {
         }
 
         self.buf.push_state(data, is_caps);
+        // Mirrors `push_state`, but never rewound by the duplicate-key undo
+        // below (which decrements `state_index`), so ESC can still replay the
+        // keys the user actually pressed.
+        self.raw.push(data as u32 | if is_caps { CAPS_MASK } else { 0 });
 
         if !is_special_key(self.input_type(), data) || self.temp_disable_key {
             if self.opts.quick_telex
@@ -1054,6 +1106,7 @@ impl Engine {
             self.buf.index = 0;
             self.temp_disable_key = false;
             self.buf.state_index = 0;
+            self.raw.clear();
             self.hook.ext_code = 3;
             self.special_char.push(data as u32 | if is_caps { CAPS_MASK } else { 0 });
         }

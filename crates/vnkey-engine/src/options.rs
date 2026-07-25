@@ -35,6 +35,15 @@ pub struct EngineOptions {
     pub other_language: bool,
     /// Temporarily disables the whole engine for the in-progress word.
     pub temp_off_engine: bool,
+    /// Restore the raw keystrokes at the end of a word that cannot be
+    /// Vietnamese, so English typed in Telex/VNI comes out as typed. Also
+    /// enables the small English-word heuristic in `english`.
+    pub auto_restore_english: bool,
+    /// Let ESC undo the composition of the word in progress. Unlike
+    /// `auto_restore_english` this is unconditional: it restores even a
+    /// perfectly valid Vietnamese word, which is the only way to type English
+    /// words that collide with real syllables (`mix`, `this`, `test`).
+    pub esc_restore_english: bool,
 }
 
 impl Default for EngineOptions {
@@ -62,6 +71,8 @@ impl Default for EngineOptions {
             remember_code: true,
             other_language: true,
             temp_off_engine: false,
+            auto_restore_english: true,
+            esc_restore_english: true,
         }
     }
 }
