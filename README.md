@@ -2,30 +2,26 @@
 
 <!-- TODO: replace https://github.com/yourname/VNKey with the real repo URL everywhere it appears (this file, docs/, src/lib/strings.ts) once the project has a home. -->
 
-VNKey là bộ gõ tiếng Việt cho macOS, viết lại từ
-[OpenKey](https://github.com/tuyenvm/OpenKey) (tác giả Mai Vũ Tuyên) bằng
-Rust + [Tauri](https://tauri.app). VNKey giữ nguyên logic gõ và các bảng mã
-của OpenKey nhưng thay toàn bộ phần nền tảng: engine thuần Rust (không FFI,
-không C++), tầng macOS dùng `CGEventTap` viết bằng Rust/objc2, và giao diện
-Tauri + React/TypeScript thay cho AppKit/Storyboard.
+VNKey là bộ gõ tiếng Việt cho macOS, viết bằng Rust +
+[Tauri](https://tauri.app): engine thuần Rust (không FFI, không C++), tầng
+macOS dùng `CGEventTap` viết bằng Rust/objc2, giao diện Tauri +
+React/TypeScript.
 
-VNKey là **derivative work** của OpenKey (GPL-3.0) nên cũng phân phối theo
-GPL-3.0. Xem [LICENSE](./LICENSE) và [NOTICE.md](./NOTICE.md) để biết chi
-tiết ghi công.
+Phát hành theo GPL-3.0, xem [LICENSE](./LICENSE) và [NOTICE.md](./NOTICE.md).
 
 > Repo gốc dự án (placeholder, sẽ thay khi có repo thật):
 > **https://github.com/yourname/VNKey** <!-- TODO -->
 
 ## English summary
 
-VNKey is a Rust + Tauri rewrite of the OpenKey Vietnamese IME for macOS. The
-typing engine is a pure-Rust port (no FFI, no C++) covered by a golden test
-suite. The macOS integration (key interception/injection, hotkeys, smart
-per-app switching, sleep/wake handling) is written directly against
+VNKey is a Vietnamese input method for macOS built with Rust + Tauri. The
+typing engine is pure Rust (no FFI, no C++) covered by a golden test suite.
+The macOS integration (key interception/injection, hotkeys, smart per-app
+switching, sleep/wake handling) is written directly against
 AppKit/CoreGraphics via `objc2`, and the UI (Control Panel, macro editor,
-convert tool, About) is a Tauri v2 + React/TypeScript app. Licensed GPL-3.0
-as a derivative of OpenKey. See the sections below (in Vietnamese) for build
-instructions, the Accessibility permission grant, and the test suite.
+convert tool, About) is a Tauri v2 + React/TypeScript app. Licensed GPL-3.0.
+See the sections below (in Vietnamese) for build instructions, the
+Accessibility permission grant, and the test suite.
 
 ## Kiến trúc
 
@@ -99,7 +95,7 @@ Artifact: `target/release/bundle/macos/VNKey.app` và
 ## Cấp quyền Trợ năng (Accessibility)
 
 VNKey cần quyền **Accessibility** để bắt và chèn phím vào các ứng dụng
-khác (giống mọi bộ gõ tiếng Việt trên macOS: Unikey, OpenKey, EVKey...).
+khác (giống mọi bộ gõ tiếng Việt trên macOS: Unikey, EVKey...).
 Không có quyền này, VNKey mở lên sẽ chỉ hiện màn hình yêu cầu cấp quyền,
 không gõ được.
 
