@@ -68,8 +68,8 @@ export const strings = {
 
   aboutTab: {
     appName: "VNKey",
-    description: "Bộ gõ tiếng Việt mã nguồn mở, kế thừa OpenKey (GPL-3.0).",
-    credit: "Dựa trên OpenKey của Mai Vũ Tuyên.",
+    description: "Bộ gõ tiếng Việt cho macOS.",
+    credit: "Thuật toán gõ tham khảo từ OpenKey của Mai Vũ Tuyên.",
     sourceCode: "Mã nguồn...",
     // TODO: placeholder - replace with the real VNKey repo URL once it exists.
     // Used as both the "Trang chủ" (home page) and "Mã nguồn" (source code)
