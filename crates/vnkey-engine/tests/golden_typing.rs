@@ -268,6 +268,46 @@ fn restore_if_wrong_spelling_restores_raw_keys_on_space() {
     assert_eq!(type_str(o, "nghasl "), "nghasl ");
 }
 
+/// The other restore path: a break key (here `.`) rather than SPACE, which
+/// goes through `RestoreAndStartNewSession` instead of `Restore`. Pinned
+/// because that branch had no coverage at all.
+#[test]
+fn restore_if_wrong_spelling_restores_raw_keys_on_break_key() {
+    let mut o = telex();
+    o.restore_if_wrong_spelling = true;
+    assert_eq!(type_str(o, "nghasl."), "nghasl.");
+}
+
+/// Turning restore on must not disturb ordinary Vietnamese. Every entry here
+/// produces byte-identical output with the option off and on; these are the
+/// regression tripwire for the auto-restore work.
+#[test]
+fn restore_if_wrong_spelling_leaves_valid_vietnamese_untouched() {
+    let mut on = telex();
+    on.restore_if_wrong_spelling = true;
+    let cases = [
+        ("vieejt ", "việt "),
+        ("ddaay ", "đây "),
+        ("uwowng ", "ương "),
+        ("thueej ", "thuệ "),
+        ("hoaf ", "hòa "),
+        ("nghieeng ", "nghiêng "),
+        ("dduwowcj ", "được "),
+        ("ruwowuj ", "rượu "),
+        ("af ", "à "),
+        ("oof ", "ồ "),
+        ("bee ", "bê "),
+        ("mee ", "mê "),
+        ("quaf ", "quà "),
+        ("gifn ", "gìn "),
+        ("khoong ", "không "),
+    ];
+    for (typed, expected) in cases {
+        assert_eq!(type_str(on, typed), expected, "with restore ON: {typed:?}");
+        assert_eq!(type_str(telex(), typed), expected, "with restore OFF: {typed:?}");
+    }
+}
+
 #[test]
 fn backspace_then_retype_repositions_mark_via_check_grammar() {
     // "vieejt" -> "việt". Two backspaces strip back to "vi", then retyping
