@@ -40,9 +40,10 @@ nằm trong `src-tauri`.
 vào `SharedConfig::input_is_english`; tap thread chỉ đọc atomic. Đừng gọi
 thẳng TIS trong `tap.rs`.
 
-**2. Engine là bản port trung thực, không phải code viết mới.** Nhiều đoạn
-trông "sai" là cố ý mô phỏng hành vi gốc (kể cả UB của C++). Trước khi "sửa
-cho đẹp", chạy `cargo test` - phần lớn hành vi lạ đã bị golden test ghim.
+**2. Nhiều đoạn trong engine trông "sai" nhưng là cố ý.** Thuật toán gõ tiếng
+Việt có rất nhiều ca biên, và hành vi hiện tại đã được golden test ghim chặt.
+Trước khi "sửa cho đẹp" hay đơn giản hoá, chạy `cargo test` - nếu test đỏ thì
+đó là hành vi có chủ đích, không phải bug.
 
 **3. `temp_disable_key` không thuần là "sai chính tả".** `spelling.rs` đặt nó
 theo kết quả kiểm tra chính tả, nhưng `marks.rs` cũng đặt nó ở các ca hoàn tác
@@ -116,12 +117,7 @@ Ký tự sentinel trong `key_of`: `\u{8}` = DELETE, `\n` = ENTER, `\u{1b}` = ESC
 - `docs/PARITY-CHECKLIST.md` - checklist kiểm thử tay
 - `docs/dev-signing.md` - tạo cert tự-ký để quyền không bị quên mỗi lần build
 
-## Bối cảnh nguồn gốc
+## Ghi công / giấy phép
 
-Engine (bảng mã, quy tắc đặt dấu, `check_spelling`, macro, smart-switch,
-chuyển mã) được **port từ OpenKey** (GPL-3.0). Trước đây repo có crate
-`openkey-oracle` vendor mã C++ gốc để chạy differential test chứng minh
-bit-exact; crate đó đã bị xoá khi port hoàn tất (còn trong git history).
-
-Phần ghi công/giấy phép đã được chủ dự án rút gọn theo chủ đích. **Đừng tự ý
-thêm lại** notice hay đổi `LICENSE` - đó là quyết định của chủ dự án.
+Phần ghi công và `LICENSE` đã được chủ dự án chỉnh theo chủ đích. **Đừng tự ý
+thêm, sửa hay xoá** - hỏi chủ dự án trước.
