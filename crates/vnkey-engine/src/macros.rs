@@ -272,9 +272,14 @@ impl MacroTable {
 
     /// Save to a `String` rather than a path. Header then `text:content\n` per
     /// macro in save order.
+    ///
+    /// The header keeps the UniKey-compatible shape (a leading `;` comment
+    /// line, same `*** version=1 ***` suffix) so other tools that read this
+    /// format still recognize the file; importers skip line 1 regardless of
+    /// its text, as [`Self::import_unikey_txt`] does.
     pub fn export_unikey_txt(&self) -> String {
         let mut out =
-            String::from(";Compatible OpenKey Macro Data file for UniKey*** version=1 ***\n");
+            String::from(";Compatible VNKey Macro Data file for UniKey*** version=1 ***\n");
         for entry in self.map.values() {
             out.push_str(&entry.text);
             out.push(':');
@@ -439,9 +444,31 @@ mod tests {
         t.add("ms", "millisecond", CodeTable::Unicode);
         t.add("vn", "Việt Nam", CodeTable::Unicode);
         let txt = t.export_unikey_txt();
-        assert!(txt.starts_with(";Compatible OpenKey Macro Data file for UniKey*** version=1 ***\n"));
+        assert!(txt.starts_with(";Compatible VNKey Macro Data file for UniKey*** version=1 ***\n"));
         let mut t2 = MacroTable::new();
         t2.import_unikey_txt(&txt, false, CodeTable::Unicode);
         assert_eq!(t.all(), t2.all());
+    }
+
+    /// Files exported by other tools (or by older builds) carry a different
+    /// header line. Import must still read them: line 1 is skipped whatever it
+    /// says, so only the `name:content` lines matter.
+    #[test]
+    fn import_accepts_any_header_line() {
+        let foreign = ";Compatible OpenKey Macro Data file for UniKey*** version=1 ***\nms:millisecond\nvn:Việt Nam\n";
+        let mut t = MacroTable::new();
+        let added = t.import_unikey_txt(foreign, false, CodeTable::Unicode);
+
+        assert_eq!(added, 2, "both macros must import despite the unfamiliar header");
+        // `all()` follows map order, so compare as a sorted set.
+        let mut entries = t.all();
+        entries.sort();
+        assert_eq!(
+            entries,
+            vec![
+                ("ms".to_string(), "millisecond".to_string()),
+                ("vn".to_string(), "Việt Nam".to_string()),
+            ]
+        );
     }
 }
