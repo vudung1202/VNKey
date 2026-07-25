@@ -1,0 +1,127 @@
+# CLAUDE.md - hướng dẫn cho agent làm việc trên VNKey
+
+VNKey là bộ gõ tiếng Việt cho macOS: engine thuần Rust + tầng macOS
+(CGEventTap/objc2) + UI Tauri v2 & React/TypeScript.
+
+README mô tả tính năng và cách build cho người dùng. File này chỉ ghi những
+thứ **không tự suy ra được từ code** - ranh giới kiến trúc, các bẫy đã trả giá
+để biết, và quy ước của dự án. Đọc file này trước khi sửa.
+
+## Lệnh hay dùng
+
+```sh
+export PATH="$HOME/.cargo/bin:$PATH"     # BẮT BUỘC, cargo không có sẵn trong PATH
+
+cargo test --workspace                    # 228 test, phải xanh trước khi commit
+cargo clippy --workspace --all-targets -- -D warnings
+npm run build                             # tsc + vite (typecheck UI)
+npx tauri build --debug                   # ra target/debug/bundle/macos/VNKey.app
+./retest.sh                               # build + reset quyền TCC + mở app
+```
+
+## Ranh giới kiến trúc (quy tắc quan trọng nhất)
+
+```
+crates/vnkey-engine/   Thuần Rust, KHÔNG biết gì về Tauri/macOS.
+                       Test độc lập bằng golden + unit test.
+src-tauri/src/         Tầng macOS + Tauri. platform/mac/ là chỗ duy nhất
+                       chạm AppKit/CoreGraphics.
+src/                   UI React, route theo window label trong main.tsx.
+```
+
+Đừng để `vnkey-engine` phụ thuộc Tauri/macOS. Mọi thứ liên quan hệ điều hành
+nằm trong `src-tauri`.
+
+## Bẫy đã trả giá để biết
+
+**1. TSM/TIS chỉ được gọi trên main thread.** Gọi
+`TISCopyCurrentKeyboardInputSource` từ tap thread làm macOS 15 **crash**
+(`dispatch_assert_queue`). Vì vậy `tis.rs` đọc TIS trên main thread rồi cache
+vào `SharedConfig::input_is_english`; tap thread chỉ đọc atomic. Đừng gọi
+thẳng TIS trong `tap.rs`.
+
+**2. Engine là bản port trung thực, không phải code viết mới.** Nhiều đoạn
+trông "sai" là cố ý mô phỏng hành vi gốc (kể cả UB của C++). Trước khi "sửa
+cho đẹp", chạy `cargo test` - phần lớn hành vi lạ đã bị golden test ghim.
+
+**3. `temp_disable_key` không thuần là "sai chính tả".** `spelling.rs` đặt nó
+theo kết quả kiểm tra chính tả, nhưng `marks.rs` cũng đặt nó ở các ca hoàn tác
+dấu trùng / "thoòng". Muốn thêm tín hiệu mới thì OR vào điều kiện, đừng bật
+`temp_disable_key` để "báo hiệu" - sẽ vô tình chặn cả biến đổi giữa từ.
+
+**4. `buf.states` bị rewind, `RawJournal` thì không.** Đường hoàn tác phím
+trùng giảm `state_index`, phá lịch sử phím thô (gõ `off` chỉ còn `of`). Vì vậy
+`english.rs` giữ `RawJournal` riêng cho ESC. Đường tự khôi phục vẫn dùng
+`buf.states` vì số ký tự của nó đang bị test ghim - đừng gộp hai nguồn.
+
+**5. `MAX_BUFF = 32`.** `push_state` ghim ghi ở `states[31]` mà không tăng
+`state_index` khi vượt 32 phím. `backspace_count`/`new_char_count` là `u8` và
+`char_data` rộng 32 - luôn kiểm tra biên trước khi ép kiểu.
+
+**6. Ad-hoc signing làm macOS quên quyền mỗi lần build.** Quyền Accessibility
+gắn với CDHash, mà CDHash đổi mỗi lần build. Sau khi build lại phải cấp quyền
+lại. `./retest.sh` tự động phần reset. Đây là hành vi bình thường, không phải
+lỗi cần sửa.
+
+## Thêm một tuỳ chọn mới: phải đi hết 6 tầng
+
+1. `crates/vnkey-engine/src/options.rs` - `EngineOptions` + default
+2. `src-tauri/src/settings/mod.rs` - `Settings` + default + `to_engine_options`
+3. `src-tauri/src/state.rs` - **chỉ khi** tap thread cần đọc trên hot path
+4. `src/lib/types.ts` - mirror kiểu TS
+5. `src/lib/strings.ts` - nhãn tiếng Việt
+6. `src/components/ControlPanel/TypingTab.tsx` (hoặc tab tương ứng) - hàng UI
+
+**Muốn một tuỳ chọn mặc định BẬT cho cả máy đã cài:** dùng
+`#[serde(default = "default_true")]`. Lật default của field cũ **không có tác
+dụng** vì khoá đó đã nằm sẵn trong `settings.json` với giá trị cũ. Chỉ field
+mới (khoá vắng mặt) mới nhận default. Có test ghim điều này trong
+`settings/mod.rs`.
+
+## Quy ước
+
+- **Mọi chuỗi tiếng Việt hiển thị nằm ở `src/lib/strings.ts`.** Không hardcode
+  trong component.
+- **Không dùng em-dash (U+2014) hay en-dash (U+2013)** ở bất cứ đâu, kể cả
+  comment. Dùng `-`. Repo hiện sạch (grep ra 0), giữ nguyên như vậy.
+- **Theme dùng `data-theme` trên `<html>`**, không dùng `@media
+  (prefers-color-scheme)`. `lib/theme.ts` quyết định, script trong
+  `index.html` chống nháy khi khởi động.
+- **Menu bar chỉ hiện chữ V/E, không icon** - quyết định sản phẩm, cố ý
+  (`tray.rs`).
+- Comment giải thích **tại sao**, không mô tả lại code.
+
+## Cách kiểm chứng hành vi engine
+
+Đừng đoán engine làm gì - đo. Thêm test tạm vào
+`crates/vnkey-engine/tests/golden_typing.rs` dùng `type_str(opts, "chuoiphim")`
+rồi chạy `cargo test -p vnkey-engine <ten> -- --nocapture`, xong xoá test tạm.
+Harness `type_str` mô phỏng đúng cách host áp `HookState` vào ô văn bản.
+
+Ký tự sentinel trong `key_of`: `\u{8}` = DELETE, `\n` = ENTER, `\u{1b}` = ESC.
+
+## Giới hạn đã biết (đừng coi là bug)
+
+- **Tự khôi phục tiếng Anh không bắt được từ trùng âm tiết Việt hợp lệ**:
+  `this`→thí, `mix`→mĩ, `test`→tét, `is`→í. Không luật nào phân biệt được nếu
+  không có từ điển. **ESC** là lối thoát (khôi phục vô điều kiện). Đã ghi vào
+  golden test để lần sau sửa là thay đổi có chủ ý.
+- **`ass`→`as` là hành vi tiếng Việt cố ý** (có test ghim) và giống hệt
+  `off`→`of` về cấu trúc, nên không luật tự động nào tách được hai ca này.
+- Từ dài quá 32 phím mất lịch sử phím thô, không khôi phục trung thực được.
+
+## Tài liệu khác
+
+- `README.md` - build, cấp quyền, tính năng (cho người dùng)
+- `docs/PARITY-CHECKLIST.md` - checklist kiểm thử tay
+- `docs/dev-signing.md` - tạo cert tự-ký để quyền không bị quên mỗi lần build
+
+## Bối cảnh nguồn gốc
+
+Engine (bảng mã, quy tắc đặt dấu, `check_spelling`, macro, smart-switch,
+chuyển mã) được **port từ OpenKey** (GPL-3.0). Trước đây repo có crate
+`openkey-oracle` vendor mã C++ gốc để chạy differential test chứng minh
+bit-exact; crate đó đã bị xoá khi port hoàn tất (còn trong git history).
+
+Phần ghi công/giấy phép đã được chủ dự án rút gọn theo chủ đích. **Đừng tự ý
+thêm lại** notice hay đổi `LICENSE` - đó là quyết định của chủ dự án.
