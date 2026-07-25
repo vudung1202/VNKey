@@ -254,7 +254,7 @@ unsafe extern "C-unwind" fn tap_callback(
             flags,
             keycode,
             ctx.config.temp_off_spelling.load(Ordering::Relaxed),
-            ctx.config.temp_off_openkey.load(Ordering::Relaxed),
+            ctx.config.temp_off_engine.load(Ordering::Relaxed),
         );
         if action.switch {
             let mut core = ctx.engine.lock();
@@ -265,12 +265,12 @@ unsafe extern "C-unwind" fn tap_callback(
             smart_switch::persist_after_manual_switch(&ctx.app_handle, &ctx.engine);
             return core::ptr::null_mut();
         }
-        if action.temp_off_spelling || action.temp_off_openkey {
+        if action.temp_off_spelling || action.temp_off_engine {
             let mut core = ctx.engine.lock();
             if action.temp_off_spelling {
                 core.engine.temp_off_spell_checking();
             }
-            if action.temp_off_openkey {
+            if action.temp_off_engine {
                 core.engine.temp_off_engine(true);
             }
         }

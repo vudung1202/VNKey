@@ -13,7 +13,7 @@ const FIELDS: Array<[string, keyof Settings]> = [
   [strings.typingTab.useSmartSwitchKey, "use_smart_switch_key"],
   [strings.typingTab.upperCaseFirstChar, "upper_case_first_char"],
   [strings.typingTab.rememberCode, "remember_code"],
-  [strings.typingTab.tempOffOpenKey, "temp_off_openkey"],
+  [strings.typingTab.tempOffEngine, "temp_off_engine"],
   [strings.typingTab.otherLanguage, "other_language"],
 ];
 

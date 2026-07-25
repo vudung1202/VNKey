@@ -9,12 +9,10 @@ import { themePrefFromSetting, useTheme } from "../../lib/theme";
 import type { MacroEntry, Settings } from "../../lib/types";
 
 /**
- * Port of OpenKey's `MacroViewController.mm`. One text field pair
- * (`macroName`/`macroContent`) doubles as both the add-form and the
- * edit-form: clicking a table row loads it into the fields, and the primary
- * button's label flips between "Thêm"/"Sửa" depending on whether the typed
- * key already exists (`controlTextDidChange` -> `hasMacro:`) -- there's no
- * separate "edit mode" flag, and no close/OK button in this scene.
+ * One text field pair doubles as both the add-form and the edit-form:
+ * clicking a table row loads it into the fields, and the primary button's
+ * label flips between "Thêm"/"Sửa" depending on whether the typed key already
+ * exists -- there's no separate "edit mode" flag, and no close/OK button.
  */
 export function MacroEditor() {
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -82,7 +80,7 @@ export function MacroEditor() {
   }
 
   async function handleExport() {
-    const path = await save({ defaultPath: "OpenKeyMacro.txt", filters: [{ name: "Text", extensions: ["txt"] }] });
+    const path = await save({ defaultPath: "VNKeyMacro.txt", filters: [{ name: "Text", extensions: ["txt"] }] });
     if (!path) return;
     await macroExport(path);
   }

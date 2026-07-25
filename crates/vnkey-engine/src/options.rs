@@ -34,7 +34,7 @@ pub struct EngineOptions {
     pub remember_code: bool,
     pub other_language: bool,
     /// Temporarily disables the whole engine for the in-progress word.
-    pub temp_off_openkey: bool,
+    pub temp_off_engine: bool,
 }
 
 impl Default for EngineOptions {
@@ -61,7 +61,7 @@ impl Default for EngineOptions {
             quick_end_consonant: false,
             remember_code: true,
             other_language: true,
-            temp_off_openkey: false,
+            temp_off_engine: false,
         }
     }
 }
@@ -71,7 +71,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_matches_openkey_first_run_defaults() {
+    fn default_matches_documented_first_run_values() {
         let opts = EngineOptions::default();
         assert_eq!(opts.language, 1);
         assert_eq!(opts.input_type, InputType::Telex);
@@ -94,6 +94,6 @@ mod tests {
         assert!(!opts.allow_consonant_zfwj);
         assert!(!opts.quick_start_consonant);
         assert!(!opts.quick_end_consonant);
-        assert!(!opts.temp_off_openkey);
+        assert!(!opts.temp_off_engine);
     }
 }

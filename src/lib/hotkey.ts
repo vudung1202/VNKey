@@ -1,9 +1,7 @@
 import { VKEYCODE_TO_DISPLAY_NAME } from "./keycodes";
 
-// Packed hotkey (u32) encode/decode, ported from OpenKey's `vSwitchKeyStatus`
-// bit layout (`ViewController.m` `onControlSwitchKey`/`onOptionSwitchKey`/
-// `onCommandSwitchKey`/`onShiftSwitchKey`/`onBeepSound`, and the key-change
-// handler around line 260):
+// Packed hotkey (u32) encode/decode. The bit layout is shared with the Rust
+// side (`switch_key_status`), so both ends must agree exactly:
 //   bit 0x100  = Control
 //   bit 0x200  = Option
 //   bit 0x400  = Command

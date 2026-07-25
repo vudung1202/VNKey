@@ -105,7 +105,7 @@ pub struct FlagsChangedAction {
     pub temp_off_spelling: bool,
     /// The temp-off-engine chord is on and Command was among the modifiers just
     /// released -- caller must call `engine.temp_off_engine(true)`.
-    pub temp_off_openkey: bool,
+    pub temp_off_engine: bool,
 }
 
 /// Release-edge state for the hotkey/chord machine (`last_flag` /
@@ -152,7 +152,7 @@ impl HotkeyState {
         flags: u64,
         keycode: u16,
         temp_off_spelling_enabled: bool,
-        temp_off_openkey_enabled: bool,
+        temp_off_engine_enabled: bool,
     ) -> FlagsChangedAction {
         let mut action = FlagsChangedAction::default();
         if self.last_flag == 0 || self.last_flag < flags {
@@ -172,8 +172,8 @@ impl HotkeyState {
             if temp_off_spelling_enabled && !self.has_just_used_hotkey && self.last_flag & MASK_CONTROL != 0 {
                 action.temp_off_spelling = true;
             }
-            if temp_off_openkey_enabled && !self.has_just_used_hotkey && self.last_flag & MASK_COMMAND != 0 {
-                action.temp_off_openkey = true;
+            if temp_off_engine_enabled && !self.has_just_used_hotkey && self.last_flag & MASK_COMMAND != 0 {
+                action.temp_off_engine = true;
             }
             self.last_flag = 0;
             self.has_just_used_hotkey = false;
@@ -395,17 +395,17 @@ mod tests {
         let a = st.on_flags_changed(CTRL_SHIFT_MODIFIER_ONLY, 0, 59, true, false);
         assert!(!a.switch); // Shift bit required by the hotkey isn't held
         assert!(a.temp_off_spelling);
-        assert!(!a.temp_off_openkey);
+        assert!(!a.temp_off_engine);
     }
 
     #[test]
-    fn cmd_release_fires_temp_off_openkey_when_enabled() {
+    fn cmd_release_fires_temp_off_engine_when_enabled() {
         let mut st = HotkeyState::new();
         st.on_flags_changed(CTRL_SHIFT_MODIFIER_ONLY, COMMAND, 55, false, true);
         let a = st.on_flags_changed(CTRL_SHIFT_MODIFIER_ONLY, 0, 55, false, true);
         assert!(!a.switch);
         assert!(!a.temp_off_spelling);
-        assert!(a.temp_off_openkey);
+        assert!(a.temp_off_engine);
     }
 
     #[test]
@@ -439,7 +439,7 @@ mod tests {
         st.last_flag = CONTROL;
         let a = st.on_flags_changed(EMPTY_HOTKEY, 0, 59, true, true);
         assert!(!a.temp_off_spelling);
-        assert!(!a.temp_off_openkey);
+        assert!(!a.temp_off_engine);
     }
 
     // -- switch_language: flag flip -----------------------------------------

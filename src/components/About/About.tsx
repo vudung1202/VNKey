@@ -11,11 +11,10 @@ import { themePrefFromSetting, useTheme } from "../../lib/theme";
 import type { Settings } from "../../lib/types";
 
 /**
- * Port of OpenKey's `AboutViewController.m`. Content (name/description/
- * credit/source URL) is shared with the embedded `AboutTab` since it's the
- * same information; this window adds the "Trang chủ"/"Mã nguồn" links, the
- * update-check toggle + button (same check_update flow as `SystemTab`),
- * and a Đóng button.
+ * Content (name/description/credit/source URL) is shared with the embedded
+ * `AboutTab` since it's the same information; this window adds the "Trang
+ * chủ"/"Mã nguồn" links, the update-check toggle + button (same check_update
+ * flow as `SystemTab`), and a Đóng button.
  */
 export function About() {
   const [version, setVersion] = useState("");

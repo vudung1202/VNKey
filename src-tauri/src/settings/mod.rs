@@ -57,7 +57,11 @@ pub struct Settings {
     pub quick_end_consonant: bool,
     pub remember_code: bool,
     pub other_language: bool,
-    pub temp_off_openkey: bool,
+    /// Releasing Command alone temporarily disables the whole engine for the
+    /// in-progress word. The alias keeps `settings.json` files written under
+    /// the field's former name loading with this setting intact.
+    #[serde(alias = "temp_off_openkey")]
+    pub temp_off_engine: bool,
     pub quick_telex: bool,
 
     // -- Platform --
@@ -131,7 +135,7 @@ impl Default for Settings {
             quick_end_consonant: false,
             remember_code: true,
             other_language: true,
-            temp_off_openkey: false,
+            temp_off_engine: false,
             quick_telex: false,
 
             // -- Platform --
@@ -202,7 +206,7 @@ impl Settings {
             quick_end_consonant: self.quick_end_consonant,
             remember_code: self.remember_code,
             other_language: self.other_language,
-            temp_off_openkey: self.temp_off_openkey,
+            temp_off_engine: self.temp_off_engine,
         }
     }
 
@@ -227,7 +231,7 @@ impl Settings {
             .store(self.fix_chromium_browser, Ordering::Relaxed);
         config.switch_key_status.store(self.switch_key_status, Ordering::Relaxed);
         config.temp_off_spelling.store(self.temp_off_spelling, Ordering::Relaxed);
-        config.temp_off_openkey.store(self.temp_off_openkey, Ordering::Relaxed);
+        config.temp_off_engine.store(self.temp_off_engine, Ordering::Relaxed);
         config.other_language.store(self.other_language, Ordering::Relaxed);
         config
             .perform_layout_compat
@@ -370,7 +374,7 @@ mod tests {
     }
 
     #[test]
-    fn default_matches_openkey_first_run_table() {
+    fn default_matches_documented_first_run_table() {
         let s = Settings::default();
         assert_eq!(s.schema_version, SCHEMA_VERSION);
 
@@ -397,7 +401,7 @@ mod tests {
         assert!(!s.allow_consonant_zfwj);
         assert!(!s.quick_start_consonant);
         assert!(!s.quick_end_consonant);
-        assert!(!s.temp_off_openkey);
+        assert!(!s.temp_off_engine);
         assert!(!s.send_key_step_by_step);
         assert!(!s.fix_chromium_browser);
         assert!(!s.perform_layout_compat);
@@ -407,7 +411,7 @@ mod tests {
     }
 
     #[test]
-    fn default_switch_key_status_avoids_openkey_bug() {
+    fn default_switch_key_status_is_option_z_not_zero() {
         // The original's default-config routine writes the code-table value (0)
         // into the `SwitchKeyStatus` key. The correct default is Option+Z, not 0.
         let s = Settings::default();
@@ -416,7 +420,7 @@ mod tests {
     }
 
     #[test]
-    fn default_convert_hotkey_and_dont_alert_match_openkey_init() {
+    fn default_convert_hotkey_is_empty_sentinel_and_dont_alert_on() {
         let s = Settings::default();
         assert_eq!(s.convert_hotkey, EMPTY_HOTKEY);
         assert!(s.convert_dont_alert);
@@ -458,6 +462,23 @@ mod tests {
         assert_eq!(loaded.theme, 0, "a missing key must default to 0");
         assert_eq!(loaded.language, 0, "other persisted fields must survive, not reset to Settings::default()");
         assert_eq!(loaded.input_type, InputType::Vni as u8);
+    }
+
+    /// `temp_off_engine` was persisted under an older field name. A
+    /// `settings.json` still using that key must keep the user's `true` value
+    /// instead of silently reverting to the `false` default.
+    #[test]
+    fn settings_json_using_the_former_temp_off_field_name_still_loads() {
+        let path = tempdir().join("settings.json");
+        let old = Settings { temp_off_engine: true, ..Settings::default() };
+        let mut json: serde_json::Value = serde_json::to_value(old).expect("serialize to Value");
+        let obj = json.as_object_mut().expect("Settings serializes to a JSON object");
+        let value = obj.remove("temp_off_engine").expect("current key present");
+        obj.insert("temp_off_openkey".to_string(), value);
+        fs::write(&path, serde_json::to_vec(&json).expect("serialize with the old key")).expect("write fixture");
+
+        let loaded = Settings::load_from(&path);
+        assert!(loaded.temp_off_engine, "the alias must carry the old key's value over");
     }
 
     #[test]

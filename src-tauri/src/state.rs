@@ -86,7 +86,7 @@ pub struct SharedConfig {
     pub temp_off_spelling: AtomicBool,
     /// Releasing Command alone temporarily disables the whole engine for the
     /// in-progress word.
-    pub temp_off_openkey: AtomicBool,
+    pub temp_off_engine: AtomicBool,
     /// When on, pass every key through untouched while the
     /// system's current keyboard input source isn't English.
     pub other_language: AtomicBool,
@@ -134,7 +134,7 @@ impl SharedConfig {
             fix_chromium_browser: AtomicBool::new(false),
             switch_key_status: AtomicU32::new(DEFAULT_SWITCH_KEY_STATUS),
             temp_off_spelling: AtomicBool::new(opts.temp_off_spelling),
-            temp_off_openkey: AtomicBool::new(opts.temp_off_openkey),
+            temp_off_engine: AtomicBool::new(opts.temp_off_engine),
             other_language: AtomicBool::new(opts.other_language),
             input_is_english: AtomicBool::new(true),
             perform_layout_compat: AtomicBool::new(false),

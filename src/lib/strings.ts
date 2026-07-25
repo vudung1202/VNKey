@@ -1,7 +1,5 @@
-// Every Vietnamese UI string the Control Panel uses. Labels are copied
-// verbatim from OpenKey's own UI (`Base.lproj/Main.storyboard`,
-// `ViewController.m`, `AppDelegate.m`) per the task brief's requirement that
-// labels must match OpenKey exactly.
+// Every Vietnamese UI string the app uses, in one place so labels stay
+// consistent across windows and are easy to review or translate.
 export const strings = {
   topBar: {
     inputType: "Kiểu gõ:",
@@ -35,7 +33,7 @@ export const strings = {
     useSmartSwitchKey: "Chuyển chế độ thông minh",
     upperCaseFirstChar: "Viết Hoa chữ cái đầu câu",
     rememberCode: "Tự ghi nhớ bảng mã theo ứng dụng",
-    tempOffOpenKey: "Tạm tắt VNKey bằng phím ⌘",
+    tempOffEngine: "Tạm tắt VNKey bằng phím ⌘",
     otherLanguage: "Tắt tiếng Việt khi bộ gõ hệ thống khác tiếng Anh",
   },
 
@@ -71,7 +69,7 @@ export const strings = {
     description: "Bộ gõ tiếng Việt mã nguồn mở, kế thừa OpenKey (GPL-3.0).",
     credit: "Dựa trên OpenKey của Mai Vũ Tuyên.",
     sourceCode: "Mã nguồn...",
-    // TODO: placeholder — replace with the real VNKey repo URL once it exists.
+    // TODO: placeholder - replace with the real VNKey repo URL once it exists.
     // Used as both the "Trang chủ" (home page) and "Mã nguồn" (source code)
     // link in the About window/tab, since the project has no separate
     // homepage from its repo.
@@ -87,7 +85,7 @@ export const strings = {
     no: "Không",
   },
 
-  // `MacroViewController.mm` + the macro scene in `Main.storyboard`.
+  // Macro editor window.
   macroEditor: {
     keyColumn: "Từ gõ tắt",
     contentColumn: "Nội dung đầy đủ",
@@ -103,7 +101,7 @@ export const strings = {
     alertTitle: "Gõ tắt",
   },
 
-  // `ConvertToolViewController.mm` + the convert-tool scene in `Main.storyboard`.
+  // Convert-tool window.
   convertTool: {
     generalOptions: "Tùy chọn chung",
     toAllCaps: "Chuyển sang chữ HOA",
@@ -128,18 +126,17 @@ export const strings = {
     failSub: "Hãy sao chép một đoạn text để chuyển đổi!",
   },
 
-  // `AboutViewController.m` + the about scene in `Main.storyboard`; reuses
-  // `aboutTab`'s appName/description/credit/sourceCodeUrl/sourceCode (same
-  // content -- `sourceCode` deliberately not duplicated here, Task 14 review).
+  // About window; reuses `aboutTab`'s appName/description/credit/
+  // sourceCodeUrl/sourceCode (same content, so `sourceCode` is deliberately
+  // not duplicated here).
   about: {
     homePage: "Trang chủ",
     checkUpdateOnStartup: "Kiểm tra bản mới khi khởi động",
     close: "Đóng",
   },
 
-  // Task 15: the Accessibility blocking view (`Permission/PermissionGate.tsx`).
-  // Mirrors OpenKey's `AppDelegate.m: askPermission` alert content, reworded
-  // as a full-window explainer instead of a modal `NSAlert`.
+  // The Accessibility blocking view (`Permission/PermissionGate.tsx`): a
+  // full-window explainer rather than a modal alert.
   permissionGate: {
     title: "Cần cấp quyền Trợ năng",
     explain:

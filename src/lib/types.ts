@@ -24,7 +24,7 @@ export interface Settings {
   quick_end_consonant: boolean;
   remember_code: boolean;
   other_language: boolean;
-  temp_off_openkey: boolean;
+  temp_off_engine: boolean;
   quick_telex: boolean;
 
   // Platform

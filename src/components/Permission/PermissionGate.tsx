@@ -15,9 +15,8 @@ const POLL_INTERVAL_MS = 1500;
 
 /**
  * Full-window blocking view `ControlPanel` renders in place of the normal
- * tabs when `get_permission_status()` is false. Mirrors OpenKey's
- * `AppDelegate.m: askPermission` (94-112) but as an in-window explainer with
- * an explicit restart button instead of an `NSAlert` + silent `terminate:`.
+ * tabs when `get_permission_status()` is false. An in-window explainer with
+ * an explicit restart button, rather than a modal alert that quits the app.
  */
 export function PermissionGate() {
   const [granted, setGranted] = useState(false);

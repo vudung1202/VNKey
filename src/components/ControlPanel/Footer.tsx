@@ -23,7 +23,7 @@ export function Footer() {
       <Button variant="secondary" onClick={() => setConfirmOpen(true)}>
         {strings.footer.restoreDefault}
       </Button>
-      {/* Mirrors OpenKey's `onTerminateApp`: quits directly, no confirmation. */}
+      {/* Quits directly, no confirmation. */}
       <Button variant="danger" onClick={() => void quitApp()}>
         {strings.footer.quit}
       </Button>

@@ -13,10 +13,10 @@ import type { ConvertOptions, Settings } from "../../lib/types";
 type CapsField = "convert_to_all_caps" | "convert_to_all_non_caps" | "convert_to_caps_first_letter" | "convert_to_caps_each_word";
 
 /**
- * Port of OpenKey's `ConvertToolViewController.mm`. The 4 caps toggles are
- * mutually exclusive but not mandatory: `turnOffAllOption` zeroes all 4, then
- * the clicked toggle's new value is set -- so unchecking the active one just
- * leaves all 4 off ("at most one", not "always exactly one").
+ * The 4 caps toggles are mutually exclusive but not mandatory: toggling one
+ * zeroes all 4 first, then sets the clicked toggle's new value -- so
+ * unchecking the active one just leaves all 4 off ("at most one", not
+ * "always exactly one").
  */
 export function ConvertTool() {
   const [settings, setSettings] = useState<Settings | null>(null);
