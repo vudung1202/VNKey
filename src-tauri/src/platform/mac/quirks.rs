@@ -24,6 +24,29 @@ const UNICODE_COMPOUND_APPS: &[&str] = &[
 /// replaced by Shift+Left selection.
 const RECOMMEND_DISABLED_APPS: &[&str] = &["com.apple.Spotlight"];
 
+/// Editors that drop synthesized Backspace events, so a rewrite has to select
+/// the old characters with Shift+Left and type over them instead.
+///
+/// These are Electron apps whose text surface is a web view (Monaco and
+/// friends). Backspace arrives as a key event while the replacement text
+/// arrives as a Unicode-string event, and the web layer processes the two
+/// through different paths, so the ordering is not guaranteed: the insert can
+/// land before the delete, or the delete can be swallowed entirely. The
+/// visible result is scrambled text that differs run to run for identical
+/// input.
+///
+/// Deliberately NOT every Chromium app. Chrome's own fields handle backspaces
+/// correctly, and the selection approach is wrong for anything that has no
+/// editable selection to replace: in a terminal Shift+Left just moves the
+/// cursor, which corrupts the line. Keep this list to editors that need it.
+const SELECTION_REPLACEMENT_APPS: &[&str] = &[
+    "com.microsoft.VSCode",
+    "com.microsoft.VSCodeInsiders",
+    "com.visualstudio.code.oss",
+    "com.todesktop.230313mzl4w4u92", // Cursor
+    "com.exafunction.windsurf",
+];
+
 /// Resolved quirk flags for the current frontmost app.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct AppQuirks {
@@ -36,6 +59,9 @@ pub struct AppQuirks {
     pub unicode_compound_app_exact: bool,
     /// App is in the recommend-workaround-disabled list.
     pub recommend_disabled: bool,
+    /// Rewrite by selecting with Shift+Left and typing over, because this app
+    /// drops synthesized Backspace events.
+    pub selection_replacement: bool,
 }
 
 /// Resolve quirks for a bundle id. `None` (unknown app) yields all-false,
@@ -49,6 +75,7 @@ pub fn resolve_quirks(bundle_id: Option<&str>) -> AppQuirks {
             unicode_compound_app_prefix: UNICODE_COMPOUND_APPS.iter().any(|p| id.starts_with(p)),
             unicode_compound_app_exact: UNICODE_COMPOUND_APPS.contains(&id),
             recommend_disabled: RECOMMEND_DISABLED_APPS.contains(&id),
+            selection_replacement: SELECTION_REPLACEMENT_APPS.contains(&id),
         },
     }
 }
@@ -112,6 +139,34 @@ mod tests {
         // Shift / Caps Lock alone are not "other control" keys.
         assert!(!other_control_from_flags(SHIFT));
         assert!(!other_control_from_flags(ALPHA_SHIFT));
+    }
+
+    /// VS Code and its relatives drop synthesized backspaces and must rewrite
+    /// via a Shift+Left selection. Everything else must NOT: a terminal has no
+    /// editable selection, so Shift+Left there moves the cursor and corrupts
+    /// the line (observed on Ghostty while diagnosing this).
+    #[test]
+    fn selection_replacement_only_for_the_listed_editors() {
+        for id in [
+            "com.microsoft.VSCode",
+            "com.microsoft.VSCodeInsiders",
+            "com.visualstudio.code.oss",
+            "com.todesktop.230313mzl4w4u92",
+            "com.exafunction.windsurf",
+        ] {
+            assert!(resolve_quirks(Some(id)).selection_replacement, "{id} needs selection replacement");
+        }
+        for id in [
+            "com.mitchellh.ghostty",
+            "com.apple.Terminal",
+            "com.googlecode.iterm2",
+            "com.google.Chrome",
+            "com.apple.TextEdit",
+            "com.apple.Safari",
+        ] {
+            assert!(!resolve_quirks(Some(id)).selection_replacement, "{id} must keep backspaces");
+        }
+        assert!(!resolve_quirks(None).selection_replacement, "unknown app keeps backspaces");
     }
 
     #[test]

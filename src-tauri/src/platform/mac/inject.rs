@@ -149,7 +149,9 @@ impl InjectCtx<'_> {
     }
 
     fn should_use_selection_replacement(&mut self) -> bool {
-        self.spotlight_visible || self.quirks().recommend_disabled
+        self.spotlight_visible
+            || self.quirks().recommend_disabled
+            || self.quirks().selection_replacement
     }
 }
 
