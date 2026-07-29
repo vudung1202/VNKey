@@ -1,6 +1,12 @@
-//! The 15-item status-bar menu and the single [`update_tray`] entry point
-//! every state-change source (menu click, IPC command, hotkey, smart-switch)
-//! funnels through to keep it in sync.
+//! The status-bar menu and the single [`update_tray`] entry point every
+//! state-change source (menu click, IPC command, hotkey, smart-switch) funnels
+//! through to keep it in sync.
+//!
+//! The menu is deliberately short -- six entries: the language toggle, the
+//! "Kiểu gõ"/"Bảng mã" submenus, "Bảng điều khiển...", "Gõ tắt...", "Thoát".
+//! Everything else (the convert tool, the About text) lives in the Control
+//! Panel's tabs instead, so the status-bar menu stays a quick-switch surface
+//! rather than a second settings UI.
 //!
 //! Icon approach: the menu bar shows the language state as literal "V"/"E"
 //! text only, via [`tauri::tray::TrayIcon::set_title`] -- no image at all (no
@@ -35,7 +41,6 @@ struct TrayHandles {
     code_table_vni_windows: CheckMenuItem<tauri::Wry>,
     code_table_unicode_compound: CheckMenuItem<tauri::Wry>,
     code_table_cp1258: CheckMenuItem<tauri::Wry>,
-    quick_convert: MenuItem<tauri::Wry>,
 }
 
 /// The subset of [`Settings`] the tray displays, computed once so both
@@ -57,65 +62,6 @@ pub fn compute_tray_state(settings: &Settings) -> TrayState {
         language_checked,
         input_type: input_type_from_u8(settings.input_type),
         code_table: CodeTable::from_index(settings.code_table).unwrap_or(CodeTable::Unicode),
-    }
-}
-
-/// `hotkey` uses the same encoding as `switch_key_status`: bits
-/// 0x100/0x200/0x400/0x800 are Control/Option/Command/Shift, and the top byte
-/// is the pressed key's *character* (not a virtual keycode) -- `0xFE` means
-/// "no key recorded".
-///
-/// One deliberate fix: the top byte holds an ASCII character, so the space bar
-/// must be detected by comparing it against the actual ASCII space (`b' '`).
-/// Comparing against `kVK_Space` (0x31, a Carbon virtual keycode) can never
-/// match -- space's character is 0x20 -- which would leave the "show ␣ for the
-/// space bar" case as dead code.
-pub fn quick_convert_title(hotkey: u32) -> String {
-    let mut label = String::new();
-    let mut has_add = false;
-
-    if hotkey & 0x100 != 0 {
-        label.push('⌃');
-        has_add = true;
-    }
-    if hotkey & 0x200 != 0 {
-        if has_add {
-            label.push_str(" + ");
-        }
-        label.push('⌥');
-        has_add = true;
-    }
-    if hotkey & 0x400 != 0 {
-        if has_add {
-            label.push_str(" + ");
-        }
-        label.push('⌘');
-        has_add = true;
-    }
-    if hotkey & 0x800 != 0 {
-        if has_add {
-            label.push_str(" + ");
-        }
-        label.push('⇧');
-        has_add = true;
-    }
-
-    let key = ((hotkey >> 24) & 0xFF) as u8;
-    if key != 0xFE {
-        if has_add {
-            label.push_str(" + ");
-        }
-        if key == b' ' {
-            label.push_str("␣ ");
-        } else {
-            label.push(key as char);
-        }
-    }
-
-    if has_add {
-        format!("Chuyển mã nhanh - [{}]", label.to_uppercase())
-    } else {
-        "Chuyển mã nhanh".to_string()
     }
 }
 
@@ -279,21 +225,25 @@ pub fn build(app: &AppHandle, settings: &Settings) -> tauri::Result<()> {
         state.code_table == CodeTable::Cp1258,
         None::<&str>,
     )?;
-    let code_table_other_submenu = Submenu::with_id_and_items(
+    // All five code tables sit in one submenu rather than three at the top
+    // level plus a "Bảng mã khác" overflow: same shape as "Kiểu gõ", and it
+    // keeps the top level down to six entries.
+    let code_table_submenu = Submenu::with_id_and_items(
         app,
-        "code_table_other_submenu",
-        "Bảng mã khác",
+        "code_table_submenu",
+        "Bảng mã",
         true,
-        &[&code_table_unicode_compound, &code_table_cp1258],
+        &[
+            &code_table_unicode,
+            &code_table_tcvn3,
+            &code_table_vni_windows,
+            &code_table_unicode_compound,
+            &code_table_cp1258,
+        ],
     )?;
-
-    let open_convert = MenuItem::with_id(app, "open_convert", "Công cụ chuyển mã...", true, None::<&str>)?;
-    let quick_convert =
-        MenuItem::with_id(app, "quick_convert", quick_convert_title(settings.convert_hotkey), true, None::<&str>)?;
 
     let open_settings = MenuItem::with_id(app, "open_settings", "Bảng điều khiển...", true, None::<&str>)?;
     let open_macro = MenuItem::with_id(app, "open_macro", "Gõ tắt...", true, None::<&str>)?;
-    let open_about = MenuItem::with_id(app, "open_about", "Giới thiệu", true, None::<&str>)?;
 
     let quit = MenuItem::with_id(app, "quit", "Thoát", true, Some("Cmd+Q"))?;
 
@@ -303,18 +253,10 @@ pub fn build(app: &AppHandle, settings: &Settings) -> tauri::Result<()> {
             &toggle_language,
             &PredefinedMenuItem::separator(app)?,
             &input_type_submenu,
-            &PredefinedMenuItem::separator(app)?,
-            &code_table_unicode,
-            &code_table_tcvn3,
-            &code_table_vni_windows,
-            &code_table_other_submenu,
-            &PredefinedMenuItem::separator(app)?,
-            &open_convert,
-            &quick_convert,
+            &code_table_submenu,
             &PredefinedMenuItem::separator(app)?,
             &open_settings,
             &open_macro,
-            &open_about,
             &PredefinedMenuItem::separator(app)?,
             &quit,
         ],
@@ -348,7 +290,6 @@ pub fn build(app: &AppHandle, settings: &Settings) -> tauri::Result<()> {
         code_table_vni_windows,
         code_table_unicode_compound,
         code_table_cp1258,
-        quick_convert,
     });
 
     Ok(())
@@ -394,23 +335,13 @@ pub(crate) fn apply_tray_state(app: &AppHandle, settings: &Settings) {
         .code_table_unicode_compound
         .set_checked(state.code_table == CodeTable::UnicodeCompound);
     let _ = handles.code_table_cp1258.set_checked(state.code_table == CodeTable::Cp1258);
-
-    let _ = handles.quick_convert.set_text(quick_convert_title(settings.convert_hotkey));
 }
 
-fn show_window(app: &AppHandle, label: &str) {
+pub(crate) fn show_window(app: &AppHandle, label: &str) {
     if let Some(window) = app.get_webview_window(label) {
         let _ = window.show();
         let _ = window.set_focus();
     }
-}
-
-/// "Chuyển mã nhanh" / the convert hotkey: convert the clipboard using
-/// whatever the user last configured in the convert-tool window (unlike
-/// `commands::convert_clipboard`, which takes options from the IPC caller).
-fn quick_convert_now() {
-    let options = Settings::load().convert_options();
-    let _ = crate::pasteboard::quick_convert(&crate::pasteboard::SystemClipboard, &options);
 }
 
 fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
@@ -430,11 +361,8 @@ fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
         "code_table_vni_windows" => set_code_table(app, CodeTable::VniWindows as u8),
         "code_table_unicode_compound" => set_code_table(app, CodeTable::UnicodeCompound as u8),
         "code_table_cp1258" => set_code_table(app, CodeTable::Cp1258 as u8),
-        "open_convert" => show_window(app, "convert"),
-        "quick_convert" => quick_convert_now(),
         "open_settings" => show_window(app, "settings"),
         "open_macro" => show_window(app, "macro"),
-        "open_about" => show_window(app, "about"),
         "quit" => app.exit(0),
         _ => {}
     }
@@ -552,38 +480,6 @@ mod tests {
         for case in cases {
             assert_eq!(compute_tray_state(&case.settings), case.expected);
         }
-    }
-
-    #[test]
-    fn quick_convert_title_no_hotkey_configured_is_bare_label() {
-        assert_eq!(quick_convert_title(0xFE00_00FE), "Chuyển mã nhanh");
-    }
-
-    #[test]
-    fn quick_convert_title_single_modifier_and_key() {
-        // Option + Z (same encoding shape as `DEFAULT_SWITCH_KEY_STATUS`).
-        assert_eq!(quick_convert_title(0x7A00_0200 | 0x06), "Chuyển mã nhanh - [⌥ + Z]");
-    }
-
-    #[test]
-    fn quick_convert_title_multiple_modifiers_in_ctrl_opt_cmd_shift_order() {
-        let hotkey = (b'a' as u32) << 24 | 0x100 | 0x400 | 0x800;
-        assert_eq!(quick_convert_title(hotkey), "Chuyển mã nhanh - [⌃ + ⌘ + ⇧ + A]");
-    }
-
-    #[test]
-    fn quick_convert_title_space_key_shows_open_box_symbol() {
-        let hotkey = (b' ' as u32) << 24 | 0x400;
-        assert_eq!(quick_convert_title(hotkey), "Chuyển mã nhanh - [⌘ + ␣ ]");
-    }
-
-    #[test]
-    fn quick_convert_title_key_without_any_modifier_stays_unconfigured() {
-        // `has_add` is only set by the modifier-bit branches, so a key with no
-        // modifier held still produces the bare label -- not a bug fix, just
-        // what the source does.
-        let hotkey = (b'a' as u32) << 24;
-        assert_eq!(quick_convert_title(hotkey), "Chuyển mã nhanh");
     }
 
     #[test]

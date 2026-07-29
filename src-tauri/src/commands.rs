@@ -127,7 +127,15 @@ pub(crate) fn apply_and_broadcast(app: &AppHandle, mutate: impl FnOnce(Settings)
     let engine = app.state::<Arc<Mutex<EngineCore>>>();
     let config = app.state::<Arc<SharedConfig>>();
 
-    let settings = apply_and_broadcast_core(&engine, &config, Settings::load(), mutate, |s| s.save());
+    let before = Settings::load();
+    let settings = apply_and_broadcast_core(&engine, &config, before, mutate, |s| s.save());
+
+    // Only on an actual change: `setActivationPolicy` is a heavier, focus-
+    // affecting AppKit transition than the tray/event updates below, and this
+    // funnel runs for every setting, not just this one.
+    if settings.show_icon_on_dock != before.show_icon_on_dock {
+        let _ = app.set_activation_policy(crate::dock_activation_policy(settings.show_icon_on_dock));
+    }
 
     crate::tray::update_tray(app, settings);
     crate::events::status_changed(app, &settings);

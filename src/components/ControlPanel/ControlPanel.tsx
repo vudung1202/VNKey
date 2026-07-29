@@ -8,14 +8,15 @@ import type { Settings } from "../../lib/types";
 import { Segmented, ToastHost } from "../ui";
 import { PermissionGate } from "../Permission/PermissionGate";
 import { AboutTab } from "./AboutTab";
+import { ConvertTab } from "./ConvertTab";
 import { Footer } from "./Footer";
 import { MacroTab } from "./MacroTab";
 import { SystemTab } from "./SystemTab";
 import { TopBar } from "./TopBar";
 import { TypingTab } from "./TypingTab";
 
-type TabKey = "typing" | "macro" | "system" | "about";
-const TAB_KEYS: TabKey[] = ["typing", "macro", "system", "about"];
+type TabKey = "typing" | "macro" | "convert" | "system" | "about";
+const TAB_KEYS: TabKey[] = ["typing", "macro", "convert", "system", "about"];
 
 export function ControlPanel() {
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -64,6 +65,7 @@ export function ControlPanel() {
       <div className="tab-content">
         {tab === "typing" && <TypingTab settings={settings} />}
         {tab === "macro" && <MacroTab settings={settings} />}
+        {tab === "convert" && <ConvertTab settings={settings} />}
         {tab === "system" && <SystemTab settings={settings} />}
         {tab === "about" && <AboutTab />}
       </div>

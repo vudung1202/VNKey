@@ -19,6 +19,7 @@ export const strings = {
   tabs: {
     typing: "Bộ gõ",
     macro: "Gõ tắt",
+    convert: "Chuyển mã",
     system: "Hệ thống",
     about: "Thông tin",
   },

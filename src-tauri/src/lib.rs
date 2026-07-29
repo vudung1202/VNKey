@@ -29,6 +29,26 @@ fn should_auto_show_settings(permission_granted: bool, show_ui_on_startup: bool)
     !permission_granted || show_ui_on_startup
 }
 
+/// macOS gives `Regular` apps a Dock tile and `Accessory` ones none, so
+/// `show_icon_on_dock` maps straight onto the activation policy.
+///
+/// `Info.plist`'s `LSUIElement` cannot carry this on its own: tao re-applies
+/// `ActivationPolicy::Regular` from `applicationDidFinishLaunching`
+/// (`tao/src/platform_impl/macos/app_state.rs::apply_activation_policy`, which
+/// deliberately waits until then so the menu bar stays interactable). That runs
+/// after the OS has read the plist, so it overrides it -- the tile came back on
+/// every launch no matter what the setting said. The policy has to be set
+/// explicitly, both in `setup` and whenever the setting changes
+/// (`commands::apply_and_broadcast`).
+#[cfg(target_os = "macos")]
+pub(crate) fn dock_activation_policy(show_icon_on_dock: bool) -> tauri::ActivationPolicy {
+    if show_icon_on_dock {
+        tauri::ActivationPolicy::Regular
+    } else {
+        tauri::ActivationPolicy::Accessory
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut builder = tauri::Builder::default();
@@ -91,7 +111,7 @@ pub fn run() {
         }
     });
 
-    builder
+    let app = builder
         .setup(|app| {
             #[cfg(target_os = "macos")]
             {
@@ -100,6 +120,7 @@ pub fn run() {
                 app.manage(handles.config);
 
                 let settings = settings::Settings::load();
+                app.set_activation_policy(dock_activation_policy(settings.show_icon_on_dock));
                 tray::build(app.handle(), &settings)?;
 
                 // Auto-show the Control Panel at launch when the Accessibility
@@ -122,8 +143,24 @@ pub fn run() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    // Clicking the Dock tile fires `applicationShouldHandleReopen`, which Tauri
+    // surfaces as `RunEvent::Reopen`. Handling it is not optional here: the
+    // windows are hidden rather than closed (`on_window_event` above), so AppKit
+    // has nothing of its own left to restore and the click does nothing at all.
+    // `has_visible_windows` means one is already on screen -- AppKit brings it
+    // forward itself, so only the all-hidden case needs the Control Panel shown.
+    #[cfg(target_os = "macos")]
+    app.run(|app, event| {
+        if let tauri::RunEvent::Reopen { has_visible_windows: false, .. } = event {
+            tray::show_window(app, "settings");
+        }
+    });
+
+    #[cfg(not(target_os = "macos"))]
+    app.run(|_, _| {});
 }
 
 #[cfg(all(test, target_os = "macos"))]
@@ -144,5 +181,13 @@ mod tests {
     #[test]
     fn stays_hidden_when_permission_granted_and_no_startup_flag() {
         assert!(!should_auto_show_settings(true, false));
+    }
+
+    /// `ActivationPolicy` derives nothing (not even `Debug`), so `matches!`
+    /// rather than `assert_eq!`.
+    #[test]
+    fn dock_icon_setting_maps_onto_the_activation_policy() {
+        assert!(matches!(dock_activation_policy(true), tauri::ActivationPolicy::Regular));
+        assert!(matches!(dock_activation_policy(false), tauri::ActivationPolicy::Accessory));
     }
 }
