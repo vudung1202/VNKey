@@ -12,7 +12,7 @@ thứ **không tự suy ra được từ code** - ranh giới kiến trúc, các
 ```sh
 export PATH="$HOME/.cargo/bin:$PATH"     # BẮT BUỘC, cargo không có sẵn trong PATH
 
-cargo test --workspace                    # 228 test, phải xanh trước khi commit
+cargo test --workspace                    # 230 test, phải xanh trước khi commit
 cargo clippy --workspace --all-targets -- -D warnings
 npm run build                             # tsc + vite (typecheck UI)
 npx tauri build --debug                   # ra target/debug/bundle/macos/VNKey.app

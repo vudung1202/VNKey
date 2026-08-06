@@ -943,6 +943,116 @@ mod tests {
         );
     }
 
+    /// Chrome must rewrite by selection, never by Backspace: the omnibox's
+    /// inline autocomplete swallows the first Backspace of a rewrite, so typing
+    /// `dd` (-> `đ`) left `dđ` on screen. The empty character still goes first,
+    /// to collapse any live autocomplete selection to a caret before Shift+Left
+    /// starts extending from it.
+    #[test]
+    fn chrome_rewrites_by_selection_not_backspace() {
+        let mut char_data = [0u32; MAX_BUFF];
+        char_data[0] = d_stroke(CodeTable::Unicode); // đ
+        let snap = HookSnapshot {
+            code: HookCode::WillProcess,
+            backspace_count: 1,
+            new_char_count: 1,
+            ext_code: 3,
+            char_data,
+            macro_data: Vec::new(),
+            keycode: 0,
+            caps: false,
+            shift: false,
+        };
+        let mut sk = Vec::new();
+        let mut c = ctx(CodeTable::Unicode, &mut sk);
+        c.bundle_id = Some("com.google.Chrome");
+        c.fix_recommend_browser = true;
+        let mut sink = MockSink::default();
+        dispatch(&mut sink, &mut c, &snap);
+        // empty char, then 1+1 = 2 Shift+Lefts selecting "d" + the empty char,
+        // then "đ" typed over the selection. No Backspace anywhere.
+        assert_eq!(
+            sink.ops,
+            vec![
+                SinkOp::Unicode(vec![0x202F]),
+                SinkOp::ShiftLeft,
+                SinkOp::ShiftLeft,
+                SinkOp::Unicode(vec![0x0111]),
+            ]
+        );
+    }
+
+    /// The reported `gift` case: at the `f` the engine asks to replace `gi`
+    /// with `gì` (backspace_count 2). Chrome used to render `ggì` because one
+    /// deletion was lost.
+    #[test]
+    fn chrome_multi_char_rewrite_selects_every_char() {
+        let mut char_data = [0u32; MAX_BUFF];
+        char_data[0] = 0x00EC | CHAR_CODE_MASK; // ì (rightmost)
+        char_data[1] = 0x0067 | CHAR_CODE_MASK; // g
+        let snap = HookSnapshot {
+            code: HookCode::WillProcess,
+            backspace_count: 2,
+            new_char_count: 2,
+            ext_code: 3,
+            char_data,
+            macro_data: Vec::new(),
+            keycode: 0,
+            caps: false,
+            shift: false,
+        };
+        let mut sk = Vec::new();
+        let mut c = ctx(CodeTable::Unicode, &mut sk);
+        c.bundle_id = Some("com.google.Chrome");
+        c.fix_recommend_browser = true;
+        let mut sink = MockSink::default();
+        dispatch(&mut sink, &mut c, &snap);
+        assert_eq!(
+            sink.ops,
+            vec![
+                SinkOp::Unicode(vec![0x202F]),
+                SinkOp::ShiftLeft,
+                SinkOp::ShiftLeft,
+                SinkOp::ShiftLeft,
+                SinkOp::Unicode("gì".encode_utf16().collect()),
+            ]
+        );
+    }
+
+    /// Safari is not Chromium and keeps the plain backspace path, so the
+    /// browser quirk stays scoped to the apps that actually need it.
+    #[test]
+    fn safari_still_uses_backspaces() {
+        let mut char_data = [0u32; MAX_BUFF];
+        char_data[0] = d_stroke(CodeTable::Unicode);
+        let snap = HookSnapshot {
+            code: HookCode::WillProcess,
+            backspace_count: 1,
+            new_char_count: 1,
+            ext_code: 3,
+            char_data,
+            macro_data: Vec::new(),
+            keycode: 0,
+            caps: false,
+            shift: false,
+        };
+        let mut sk = Vec::new();
+        let mut c = ctx(CodeTable::Unicode, &mut sk);
+        c.bundle_id = Some("com.apple.Safari");
+        c.fix_recommend_browser = true;
+        let mut sink = MockSink::default();
+        dispatch(&mut sink, &mut c, &snap);
+        assert_eq!(
+            sink.ops,
+            vec![
+                SinkOp::Unicode(vec![0x202F]),
+                SinkOp::Backspace,
+                SinkOp::Backspace,
+                SinkOp::Unicode(vec![0x0111]),
+            ]
+        );
+    }
+
     #[test]
     fn recommend_workaround_skipped_when_ext_code_4() {
         let mut char_data = [0u32; MAX_BUFF];

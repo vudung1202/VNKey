@@ -35,16 +35,47 @@ const RECOMMEND_DISABLED_APPS: &[&str] = &["com.apple.Spotlight"];
 /// visible result is scrambled text that differs run to run for identical
 /// input.
 ///
-/// Deliberately NOT every Chromium app. Chrome's own fields handle backspaces
-/// correctly, and the selection approach is wrong for anything that has no
-/// editable selection to replace: in a terminal Shift+Left just moves the
-/// cursor, which corrupts the line. Keep this list to editors that need it.
+/// Exact match, because these are single-bundle-id apps. The browsers below
+/// need the same treatment for a different reason and are matched by prefix.
 const SELECTION_REPLACEMENT_APPS: &[&str] = &[
     "com.microsoft.VSCode",
     "com.microsoft.VSCodeInsiders",
     "com.visualstudio.code.oss",
     "com.todesktop.230313mzl4w4u92", // Cursor
     "com.exafunction.windsurf",
+];
+
+/// Chromium browsers, which need selection replacement for their own reason:
+/// the address bar's inline autocomplete.
+///
+/// After every text change the omnibox re-runs autocomplete and, on a match,
+/// appends the completion as a selection. The next Backspace then *cancels the
+/// autocomplete* instead of deleting a character, so the first backspace of a
+/// rewrite is swallowed and the word is left one deletion short: `gift` comes
+/// out `ggift`, `dd` comes out `dđ`. The empty-character workaround
+/// (`fix_recommend_browser`) cannot win this race - the omnibox simply
+/// re-establishes the completion after the empty character lands.
+///
+/// Prefix match so the Beta/Dev/Canary channels are covered without listing
+/// each one.
+///
+/// Known tradeoff, accepted: a bundle id cannot tell the address bar apart
+/// from page content, so this also applies to text fields inside web pages.
+/// Ordinary inputs, textareas and contenteditable handle a selection replace
+/// fine; a terminal emulator running *inside* the browser (ttyd, Cloud Shell,
+/// the JupyterLab terminal) does not, since Shift+Left there just moves the
+/// cursor. That is the same failure Ghostty showed natively. Typing Vietnamese
+/// in the address bar is common and web terminals are rare, so the trade goes
+/// this way.
+const SELECTION_REPLACEMENT_BROWSER_PREFIXES: &[&str] = &[
+    "com.google.Chrome",     // + .beta / .dev / .canary
+    "org.chromium.Chromium",
+    "com.brave.Browser",     // + .beta / .nightly
+    "com.microsoft.edgemac", // + .Beta / .Dev / .Canary
+    "com.microsoft.Edge",
+    "company.thebrowser.Browser", // Arc
+    "com.vivaldi.Vivaldi",
+    "com.operasoftware.Opera",
 ];
 
 /// Resolved quirk flags for the current frontmost app.
@@ -75,7 +106,10 @@ pub fn resolve_quirks(bundle_id: Option<&str>) -> AppQuirks {
             unicode_compound_app_prefix: UNICODE_COMPOUND_APPS.iter().any(|p| id.starts_with(p)),
             unicode_compound_app_exact: UNICODE_COMPOUND_APPS.contains(&id),
             recommend_disabled: RECOMMEND_DISABLED_APPS.contains(&id),
-            selection_replacement: SELECTION_REPLACEMENT_APPS.contains(&id),
+            selection_replacement: SELECTION_REPLACEMENT_APPS.contains(&id)
+                || SELECTION_REPLACEMENT_BROWSER_PREFIXES
+                    .iter()
+                    .any(|p| id.starts_with(p)),
         },
     }
 }
@@ -142,11 +176,9 @@ mod tests {
     }
 
     /// VS Code and its relatives drop synthesized backspaces and must rewrite
-    /// via a Shift+Left selection. Everything else must NOT: a terminal has no
-    /// editable selection, so Shift+Left there moves the cursor and corrupts
-    /// the line (observed on Ghostty while diagnosing this).
+    /// via a Shift+Left selection.
     #[test]
-    fn selection_replacement_only_for_the_listed_editors() {
+    fn selection_replacement_for_the_listed_editors() {
         for id in [
             "com.microsoft.VSCode",
             "com.microsoft.VSCodeInsiders",
@@ -156,13 +188,44 @@ mod tests {
         ] {
             assert!(resolve_quirks(Some(id)).selection_replacement, "{id} needs selection replacement");
         }
+    }
+
+    /// Chromium browsers need it too: the omnibox's inline autocomplete eats
+    /// the first Backspace of a rewrite, leaving the word one deletion short
+    /// (`gift` -> `ggift`). Matched by prefix so release channels are covered.
+    #[test]
+    fn selection_replacement_for_chromium_browsers_and_their_channels() {
+        for id in [
+            "com.google.Chrome",
+            "com.google.Chrome.beta",
+            "com.google.Chrome.canary",
+            "org.chromium.Chromium",
+            "com.brave.Browser",
+            "com.brave.Browser.nightly",
+            "com.microsoft.edgemac",
+            "com.microsoft.edgemac.Beta",
+            "company.thebrowser.Browser",
+            "com.vivaldi.Vivaldi",
+            "com.operasoftware.Opera",
+        ] {
+            assert!(resolve_quirks(Some(id)).selection_replacement, "{id} needs selection replacement");
+        }
+    }
+
+    /// Everything else must keep backspaces: a terminal has no editable
+    /// selection, so Shift+Left there moves the cursor and corrupts the line
+    /// (observed on Ghostty while diagnosing the VS Code case). Safari is on
+    /// this list deliberately - it is not Chromium and its search field takes
+    /// synthesized backspaces correctly.
+    #[test]
+    fn other_apps_keep_backspaces() {
         for id in [
             "com.mitchellh.ghostty",
             "com.apple.Terminal",
             "com.googlecode.iterm2",
-            "com.google.Chrome",
             "com.apple.TextEdit",
             "com.apple.Safari",
+            "org.mozilla.firefox",
         ] {
             assert!(!resolve_quirks(Some(id)).selection_replacement, "{id} must keep backspaces");
         }
