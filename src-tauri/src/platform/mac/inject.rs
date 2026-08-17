@@ -220,9 +220,24 @@ pub fn dispatch<S: EventSink>(
             // Autocomplete fix.
             if ctx.should_use_recommend_workaround() && snap.ext_code != 4 {
                 if ctx.fix_chromium_browser && ctx.quirks().unicode_compound_app_exact {
-                    // TODO(Task 9/10): chromium Shift+Left workaround. Off by
-                    // default (fix_chromium_browser == false), so this branch is
-                    // never taken in this task; kept for structural fidelity.
+                    // OpenKey's `fixChromiumBrowser`, kept for parity and off by
+                    // default.
+                    //
+                    // Note where this sits: nested inside the
+                    // recommend-workaround gate, so it only ever runs when
+                    // `fix_recommend_browser` is ALSO on. But when that is on,
+                    // the empty character in the `else` below already fixes the
+                    // omnibox on its own (verified by hand in Chrome
+                    // 2026-08-17). So this branch is effectively unexercised -
+                    // it has never been observed to help or to hurt, and the
+                    // one attempt to test it was invalid because the outer gate
+                    // was off at the time.
+                    //
+                    // Do not write a mechanism for it here without measuring
+                    // one first. What is known: it uses only one arrow, not one
+                    // per character, because selecting the whole rewrite
+                    // corrupts Google Docs (see `SELECTION_REPLACEMENT_APPS` in
+                    // quirks.rs).
                     if bpc > 0 {
                         send_shift_left_arrow(sink, ctx);
                         if bpc == 1 {
@@ -943,13 +958,14 @@ mod tests {
         );
     }
 
-    /// Chrome must rewrite by selection, never by Backspace: the omnibox's
-    /// inline autocomplete swallows the first Backspace of a rewrite, so typing
-    /// `dd` (-> `đ`) left `dđ` on screen. The empty character still goes first,
-    /// to collapse any live autocomplete selection to a caret before Shift+Left
-    /// starts extending from it.
+    /// Chrome rewrites by Backspace, not by selection. Selection replacement
+    /// was tried here to fix the omnibox and corrupted Google Docs, whose
+    /// canvas editor races a synthetic Shift+Left against the synthetic insert
+    /// and keeps the characters it was told to delete: `nguyễn thị phương
+    /// thảo` came out `nguyễn uyê thị phuoương thảo`. A bundle id cannot
+    /// separate the omnibox from page content, so page content wins.
     #[test]
-    fn chrome_rewrites_by_selection_not_backspace() {
+    fn chrome_page_content_rewrites_by_backspace_not_selection() {
         let mut char_data = [0u32; MAX_BUFF];
         char_data[0] = d_stroke(CodeTable::Unicode); // đ
         let snap = HookSnapshot {
@@ -969,24 +985,28 @@ mod tests {
         c.fix_recommend_browser = true;
         let mut sink = MockSink::default();
         dispatch(&mut sink, &mut c, &snap);
-        // empty char, then 1+1 = 2 Shift+Lefts selecting "d" + the empty char,
-        // then "đ" typed over the selection. No Backspace anywhere.
+        // empty char, then 1+1 = 2 backspaces, then "đ". No Shift+Left.
         assert_eq!(
             sink.ops,
             vec![
                 SinkOp::Unicode(vec![0x202F]),
-                SinkOp::ShiftLeft,
-                SinkOp::ShiftLeft,
+                SinkOp::Backspace,
+                SinkOp::Backspace,
                 SinkOp::Unicode(vec![0x0111]),
             ]
         );
     }
 
-    /// The reported `gift` case: at the `f` the engine asks to replace `gi`
-    /// with `gì` (backspace_count 2). Chrome used to render `ggì` because one
-    /// deletion was lost.
+    /// Pins the wire shape of OpenKey's `fix_chromium_browser` option: one
+    /// Shift+Left, then the backspaces unchanged. The count still works out
+    /// (the first backspace eats the selection, the rest delete text).
+    ///
+    /// Parity only. The branch is gated behind `fix_recommend_browser`, and
+    /// when that is on the empty character alone already fixes the omnibox, so
+    /// this option has never been observed to change anything either way. The
+    /// test pins the wire shape so the option cannot drift silently.
     #[test]
-    fn chrome_multi_char_rewrite_selects_every_char() {
+    fn chromium_opt_in_prefixes_one_shift_left_and_keeps_backspaces() {
         let mut char_data = [0u32; MAX_BUFF];
         char_data[0] = 0x00EC | CHAR_CODE_MASK; // ì (rightmost)
         char_data[1] = 0x0067 | CHAR_CODE_MASK; // g
@@ -1005,17 +1025,49 @@ mod tests {
         let mut c = ctx(CodeTable::Unicode, &mut sk);
         c.bundle_id = Some("com.google.Chrome");
         c.fix_recommend_browser = true;
+        c.fix_chromium_browser = true;
         let mut sink = MockSink::default();
         dispatch(&mut sink, &mut c, &snap);
         assert_eq!(
             sink.ops,
             vec![
-                SinkOp::Unicode(vec![0x202F]),
                 SinkOp::ShiftLeft,
-                SinkOp::ShiftLeft,
-                SinkOp::ShiftLeft,
+                SinkOp::Backspace,
+                SinkOp::Backspace,
                 SinkOp::Unicode("gì".encode_utf16().collect()),
             ]
+        );
+    }
+
+    /// The one-character case of the same opt-in: the backspace is dropped
+    /// because the Shift+Left is meant to have selected the single character to
+    /// replace. Whether it actually does so in Chrome's omnibox is unmeasured -
+    /// see the note in `dispatch`. Pinned as the intended wire shape.
+    #[test]
+    fn chromium_opt_in_single_char_rewrite_drops_the_backspace() {
+        let mut char_data = [0u32; MAX_BUFF];
+        char_data[0] = d_stroke(CodeTable::Unicode); // đ
+        let snap = HookSnapshot {
+            code: HookCode::WillProcess,
+            backspace_count: 1,
+            new_char_count: 1,
+            ext_code: 3,
+            char_data,
+            macro_data: Vec::new(),
+            keycode: 0,
+            caps: false,
+            shift: false,
+        };
+        let mut sk = Vec::new();
+        let mut c = ctx(CodeTable::Unicode, &mut sk);
+        c.bundle_id = Some("com.google.Chrome");
+        c.fix_recommend_browser = true;
+        c.fix_chromium_browser = true;
+        let mut sink = MockSink::default();
+        dispatch(&mut sink, &mut c, &snap);
+        assert_eq!(
+            sink.ops,
+            vec![SinkOp::ShiftLeft, SinkOp::Unicode(vec![0x0111])]
         );
     }
 

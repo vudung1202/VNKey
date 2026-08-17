@@ -35,47 +35,33 @@ const RECOMMEND_DISABLED_APPS: &[&str] = &["com.apple.Spotlight"];
 /// visible result is scrambled text that differs run to run for identical
 /// input.
 ///
-/// Exact match, because these are single-bundle-id apps. The browsers below
-/// need the same treatment for a different reason and are matched by prefix.
+/// Exact match, and deliberately NOT a prefix over every Chromium app.
+///
+/// Selection replacement was briefly given to all Chromium browsers to fix the
+/// omnibox's inline autocomplete eating the first Backspace of a rewrite
+/// (`gift` -> `ggift`). That broke Google Docs, which renders to a canvas and
+/// keeps its own selection model: a synthetic Shift+Left and a synthetic insert
+/// race there exactly the way Backspace does in Monaco. Measured on one
+/// recording, `thao`+`r` (backspace_count 2) came out `thảo` while `phuo`+`w`
+/// (also backspace_count 2) came out `phuoươ` - identical edits, opposite
+/// outcomes in the same session, so no tuning of the selection path makes it
+/// reliable there. A bundle id cannot tell the omnibox apart from page content,
+/// and page content is where documents get corrupted, so page content wins.
+///
+/// And the omnibox does not need selection replacement in the first place. The
+/// U+202F empty character behind `fix_recommend_browser` (default: on) already
+/// breaks the inline autocomplete: with that setting on, `gift`, `ddang` and
+/// `gg docs` all type correctly in Chrome's address bar, verified by hand on
+/// 2026-08-17. The `gift` -> `ggift` report that motivated f338e05 came from a
+/// config where `fix_recommend_browser` had been switched off, so the mechanism
+/// meant to handle it was never running. Check that setting before believing
+/// the omnibox is broken.
 const SELECTION_REPLACEMENT_APPS: &[&str] = &[
     "com.microsoft.VSCode",
     "com.microsoft.VSCodeInsiders",
     "com.visualstudio.code.oss",
     "com.todesktop.230313mzl4w4u92", // Cursor
     "com.exafunction.windsurf",
-];
-
-/// Chromium browsers, which need selection replacement for their own reason:
-/// the address bar's inline autocomplete.
-///
-/// After every text change the omnibox re-runs autocomplete and, on a match,
-/// appends the completion as a selection. The next Backspace then *cancels the
-/// autocomplete* instead of deleting a character, so the first backspace of a
-/// rewrite is swallowed and the word is left one deletion short: `gift` comes
-/// out `ggift`, `dd` comes out `dđ`. The empty-character workaround
-/// (`fix_recommend_browser`) cannot win this race - the omnibox simply
-/// re-establishes the completion after the empty character lands.
-///
-/// Prefix match so the Beta/Dev/Canary channels are covered without listing
-/// each one.
-///
-/// Known tradeoff, accepted: a bundle id cannot tell the address bar apart
-/// from page content, so this also applies to text fields inside web pages.
-/// Ordinary inputs, textareas and contenteditable handle a selection replace
-/// fine; a terminal emulator running *inside* the browser (ttyd, Cloud Shell,
-/// the JupyterLab terminal) does not, since Shift+Left there just moves the
-/// cursor. That is the same failure Ghostty showed natively. Typing Vietnamese
-/// in the address bar is common and web terminals are rare, so the trade goes
-/// this way.
-const SELECTION_REPLACEMENT_BROWSER_PREFIXES: &[&str] = &[
-    "com.google.Chrome",     // + .beta / .dev / .canary
-    "org.chromium.Chromium",
-    "com.brave.Browser",     // + .beta / .nightly
-    "com.microsoft.edgemac", // + .Beta / .Dev / .Canary
-    "com.microsoft.Edge",
-    "company.thebrowser.Browser", // Arc
-    "com.vivaldi.Vivaldi",
-    "com.operasoftware.Opera",
 ];
 
 /// Resolved quirk flags for the current frontmost app.
@@ -106,10 +92,7 @@ pub fn resolve_quirks(bundle_id: Option<&str>) -> AppQuirks {
             unicode_compound_app_prefix: UNICODE_COMPOUND_APPS.iter().any(|p| id.starts_with(p)),
             unicode_compound_app_exact: UNICODE_COMPOUND_APPS.contains(&id),
             recommend_disabled: RECOMMEND_DISABLED_APPS.contains(&id),
-            selection_replacement: SELECTION_REPLACEMENT_APPS.contains(&id)
-                || SELECTION_REPLACEMENT_BROWSER_PREFIXES
-                    .iter()
-                    .any(|p| id.starts_with(p)),
+            selection_replacement: SELECTION_REPLACEMENT_APPS.contains(&id),
         },
     }
 }
@@ -190,11 +173,15 @@ mod tests {
         }
     }
 
-    /// Chromium browsers need it too: the omnibox's inline autocomplete eats
-    /// the first Backspace of a rewrite, leaving the word one deletion short
-    /// (`gift` -> `ggift`). Matched by prefix so release channels are covered.
+    /// Chromium browsers must NOT get selection replacement, even though the
+    /// omnibox would like it. Google Docs is a canvas editor with its own
+    /// selection model and a synthetic Shift+Left races the synthetic insert
+    /// there, dropping the deletion and leaving the old characters behind
+    /// (`nguyễn thị phương thảo` -> `nguyễn uyê thị phuoương thảo`). A bundle
+    /// id cannot separate the omnibox from page content, so page content wins
+    /// and the omnibox uses the opt-in `fix_chromium_browser` path instead.
     #[test]
-    fn selection_replacement_for_chromium_browsers_and_their_channels() {
+    fn chromium_browsers_keep_backspaces_so_google_docs_stays_correct() {
         for id in [
             "com.google.Chrome",
             "com.google.Chrome.beta",
@@ -208,15 +195,17 @@ mod tests {
             "com.vivaldi.Vivaldi",
             "com.operasoftware.Opera",
         ] {
-            assert!(resolve_quirks(Some(id)).selection_replacement, "{id} needs selection replacement");
+            assert!(
+                !resolve_quirks(Some(id)).selection_replacement,
+                "{id} must keep backspaces - selection replacement corrupts Google Docs"
+            );
         }
     }
 
     /// Everything else must keep backspaces: a terminal has no editable
     /// selection, so Shift+Left there moves the cursor and corrupts the line
-    /// (observed on Ghostty while diagnosing the VS Code case). Safari is on
-    /// this list deliberately - it is not Chromium and its search field takes
-    /// synthesized backspaces correctly.
+    /// (observed on Ghostty while diagnosing the VS Code case). Browsers are
+    /// covered by their own test above; these are the non-browser cases.
     #[test]
     fn other_apps_keep_backspaces() {
         for id in [

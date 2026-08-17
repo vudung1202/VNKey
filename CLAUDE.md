@@ -12,7 +12,7 @@ thứ **không tự suy ra được từ code** - ranh giới kiến trúc, các
 ```sh
 export PATH="$HOME/.cargo/bin:$PATH"     # BẮT BUỘC, cargo không có sẵn trong PATH
 
-cargo test --workspace                    # 230 test, phải xanh trước khi commit
+cargo test --workspace                    # 231 test, phải xanh trước khi commit
 cargo clippy --workspace --all-targets -- -D warnings
 npm run build                             # tsc + vite (typecheck UI)
 npx tauri build --debug                   # ra target/debug/bundle/macos/VNKey.app
@@ -63,6 +63,27 @@ trùng giảm `state_index`, phá lịch sử phím thô (gõ `off` chỉ còn `
 gắn với CDHash, mà CDHash đổi mỗi lần build. Sau khi build lại phải cấp quyền
 lại. `./retest.sh` tự động phần reset. Đây là hành vi bình thường, không phải
 lỗi cần sửa.
+
+**7. Lỗi gõ ở thanh địa chỉ Chromium: kiểm `fix_recommend_browser` TRƯỚC.**
+`gift`→`ggift`, `ddang`→`dđang`, `gg docs`→`gg dóoc` trông y như bug code,
+nhưng cơ chế chữa nó đã có sẵn: ký tự rỗng U+202F, nằm sau công tắc **"Sửa lỗi
+gợi ý (trình duyệt, Excel,...)"** (`fix_recommend_browser`, default `true`).
+Tắt công tắc đó thì `should_use_recommend_workaround()` thoát sớm và **cả khối
+autocomplete không chạy** - kể cả nhánh `fix_chromium_browser` lồng bên trong.
+Bật lên là hết lỗi (kiểm tay 2026-08-17). Báo cáo `ggift` dẫn tới `f338e05` đến
+từ một máy đang tắt công tắc này, nên cái được "sửa" thực ra chưa từng chạy.
+Đọc `settings.json` để xác minh, đừng tin vào default trong code - khoá đã lưu
+sẽ đè default.
+
+**8. ĐỪNG cho Chromium dùng selection replacement.** Đã thử ở `f338e05` để sửa
+lỗi omnibox, và nó **phá Google Docs**: Docs vẽ bằng canvas, tự quản lý
+selection riêng, nên Shift+Left tổng hợp đua với lệnh chèn tổng hợp và những ký
+tự lẽ ra bị xoá thì còn nguyên (`nguyễn thị phương thảo` ra `nguyễn uyê thị
+phuoương thảo`). Là **race chứ không phải sai số đếm**: đo trong cùng một lần
+gõ, `thao`+`r` và `phuo`+`w` yêu cầu engine sửa y hệt nhau (bpc=2) mà một cái
+đúng một cái sai - nên không tinh chỉnh được cho ổn định. Bundle id không tách
+được thanh địa chỉ khỏi nội dung trang, mà nội dung trang mới là chỗ hỏng tài
+liệu, nên nội dung trang thắng. Có test ghim trong `quirks.rs`.
 
 ## Thêm một tuỳ chọn mới: phải đi hết 6 tầng
 
