@@ -61,9 +61,30 @@ pub unsafe fn event_flags(event: &CGEvent) -> CGEventFlags {
     CGEvent::flags(Some(event))
 }
 
+thread_local! {
+    /// A private source that never posts, so it never picks up anyone's flags.
+    static CLEAN_SOURCE: Option<CFRetained<CGEventSource>> =
+        CGEventSource::new(CGEventSourceStateID::Private);
+}
+
+/// The modifier flags `keycode` carries on its own (Fn+NumPad on arrows, Fn on
+/// F-keys, nothing on letters or Backspace).
+///
+/// Not read from VNKey's posting source: a source remembers the flags of the
+/// last event it posted, so one Shift+Left (selection replacement) left Fn on
+/// every later Backspace and text event. GPUI apps (Herdr, Zed) drop typed text
+/// that carries Fn, so Vietnamese stopped typing there.
+fn native_flags(keycode: u16, down: bool) -> CGEventFlags {
+    CLEAN_SOURCE.with(|clean| {
+        CGEvent::new_keyboard_event(clean.as_deref(), keycode, down)
+            .map_or(CGEventFlags(0), |ev| CGEvent::flags(Some(&ev)))
+    })
+}
+
 /// Post a raw keyboard keystroke (down then up) from the private source.
 ///
-/// Event construction: force `NonCoalesced` and set/clear the Shift flag.
+/// Event construction: the key's native flags, plus `NonCoalesced` and Shift
+/// as requested.
 ///
 /// # Safety
 /// `proxy` must be the proxy passed to the currently executing tap callback.
@@ -77,7 +98,7 @@ pub unsafe fn post_key(
         let Some(ev) = CGEvent::new_keyboard_event(Some(source), keycode, down) else {
             continue;
         };
-        let mut flags = CGEvent::flags(Some(&ev));
+        let mut flags = native_flags(keycode, down);
         if shift {
             flags |= CGEventFlags::MaskShift;
         } else {
@@ -111,6 +132,7 @@ pub unsafe fn post_unicode(source: &CGEventSource, proxy: CGEventTapProxy, units
                 units.as_ptr(),
             );
         }
+        CGEvent::set_flags(Some(&ev), native_flags(0, down));
         // SAFETY: `proxy` is the live callback proxy; `ev` is a valid event.
         unsafe { CGEvent::tap_post_event(proxy, Some(&ev)) };
     }
@@ -247,4 +269,20 @@ pub fn prompt_for_trust() -> bool {
     let opts = (&*dict as *const NSDictionary<NSString, NSNumber>).cast::<c_void>();
     // SAFETY: `opts` points to a valid (retained) dictionary for this call.
     unsafe { AXIsProcessTrustedWithOptions(opts) != 0 }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Text and Backspace must go out without Fn (GPUI apps drop text that
+    /// carries it), while a re-emitted arrow keeps the Fn+NumPad a real one has.
+    #[test]
+    fn native_flags_are_per_key() {
+        let fn_numpad = CGEventFlags::MaskSecondaryFn | CGEventFlags::MaskNumericPad;
+        for keycode in [0, KEYCODE_BACKSPACE] {
+            assert!(!native_flags(keycode, true).intersects(fn_numpad), "keycode {keycode}");
+        }
+        assert!(native_flags(KEYCODE_LEFT_ARROW, true).contains(fn_numpad));
+    }
 }
