@@ -14,6 +14,7 @@
 
 use crate::data::{CAPS_MASK, CHAR_MASK, MAX_BUFF};
 
+#[derive(Clone)]
 pub(crate) struct Buffer {
     pub word: [u32; MAX_BUFF],
     pub index: i32,

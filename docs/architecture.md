@@ -194,7 +194,8 @@ Mỗi ô là `keycode | CAPS_MASK | TONE_MASK | TONEW_MASK | MARKn_MASK`. `word`
 
 Ngoài ra `english.rs::RawJournal` giữ một bản ghi phím thô thứ ba, **không bao
 giờ bị rewind** - cần vì đường hoàn tác phím trùng có giảm `state_index` (gõ
-`off` thì `states` chỉ còn `of`). ESC dùng journal này.
+`off` thì `states` chỉ còn `of`). ESC và các đường tự khôi phục tiếng Anh
+(giữa từ và cuối từ, xem đầu `english.rs`) dùng journal này.
 
 ### `handle_event` chia 4 nhánh
 

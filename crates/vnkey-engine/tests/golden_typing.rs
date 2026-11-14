@@ -94,6 +94,13 @@ fn apply(field: &mut Vec<char>, orig: char, is_delete: bool, hs: &HookState) {
 fn type_str(opts: EngineOptions, s: &str) -> String {
     let mut e = Engine::new(opts);
     let mut field: Vec<char> = Vec::new();
+    type_into(&mut e, &mut field, s);
+    field.into_iter().collect()
+}
+
+/// Type `s` into an existing engine/field pair, so a caller can inspect the
+/// field between keystrokes.
+fn type_into(e: &mut Engine, field: &mut Vec<char>, s: &str) {
     for c in s.chars() {
         let (code, caps) = key_of(c);
         let hs = e.handle_event(KeyEvent::Keyboard, KeyEventState::KeyDown, code, caps, false);
@@ -101,9 +108,8 @@ fn type_str(opts: EngineOptions, s: &str) -> String {
             code as u32 | if caps == 1 { CAPS_MASK } else { 0 },
         ))
         .unwrap();
-        apply(&mut field, orig, code == KEY_DELETE, hs);
+        apply(field, orig, code == KEY_DELETE, hs);
     }
-    field.into_iter().collect()
 }
 
 fn telex() -> EngineOptions {
@@ -297,15 +303,96 @@ fn auto_restore_english_handles_the_two_letter_list() {
     }
 }
 
-/// Words that ARE valid Vietnamese syllables cannot be detected automatically
-/// (the same limitation gonhanh documents). Pinned so a future improvement is
-/// a deliberate change rather than an accident.
+/// English that composes into a real Vietnamese syllable stays Vietnamese,
+/// however rare the syllable (`tét` as in bánh tét). Pinned so a future
+/// improvement is a deliberate change rather than an accident.
 #[test]
 fn auto_restore_english_cannot_detect_valid_vietnamese_syllables() {
     assert_eq!(type_str(telex(), "mix "), "mĩ ");
     assert_eq!(type_str(telex(), "box "), "bõ ");
     assert_eq!(type_str(telex(), "this "), "thí ");
+    assert_eq!(type_str(telex(), "been "), "bên ");
+    assert_eq!(type_str(telex(), "did "), "đi ");
+    assert_eq!(type_str(telex(), "best "), "bét ");
+    assert_eq!(type_str(telex(), "these "), "thế ");
     assert_eq!(type_str(telex(), "test "), "tét ");
+    assert_eq!(type_str(telex(), "docs "), "dóc ");
+}
+
+/// A common English word whose Telex result is not a Vietnamese syllable
+/// comes back at the end of the word, including the letters a doubled tone
+/// key swallowed.
+#[test]
+fn auto_restore_english_uses_the_dictionary_at_word_end() {
+    for word in ["more ", "down ", "data ", "law ", "message ", "office ", "coffee ", "error "] {
+        assert_eq!(type_str(telex(), word), word, "typing {word:?}");
+    }
+    assert_eq!(type_str(telex(), "message."), "message.");
+    // A swallowed double inside a word the dictionary does not know.
+    assert_eq!(type_str(telex(), "deferring "), "deferring ");
+    // The Telex escape keeps working where it is the likelier intent, and a
+    // key typed three times to get a double is left alone.
+    assert_eq!(type_str(telex(), "buss "), "bus ");
+    assert_eq!(type_str(telex(), "tesst "), "test ");
+    assert_eq!(type_str(telex(), "tesst."), "test.");
+    assert_eq!(type_str(telex(), "theirr"), "their");
+    assert_eq!(type_str(telex(), "aerrial "), "aerial ");
+    assert_eq!(type_str(telex(), "offfice "), "office ");
+    assert_eq!(type_str(telex(), "ass "), "as ");
+    assert_eq!(type_str(telex(), "off "), "of ");
+    // A c/ch/p/t syllable still missing its tone may get it later, so it stays
+    // when the toned syllable is the more common word (`tốt`, `bột`).
+    assert_eq!(type_str(telex(), "toot "), "tôt ");
+    assert_eq!(type_str(telex(), "boot "), "bôt ");
+    assert_eq!(type_str(telex(), "loop "), "loop ");
+    // Off switch.
+    let mut o = telex();
+    o.auto_restore_english = false;
+    assert_eq!(type_str(o, "down "), "dơn ");
+}
+
+/// Once a key makes a word with Vietnamese marks impossible as Vietnamese, the
+/// raw keys come back immediately rather than at SPACE, and the rest of the
+/// word is typed as is.
+#[test]
+fn auto_restore_english_restores_mid_word() {
+    for word in [
+        "perfect", "perform", "server", "terminal", "export", "case", "music", "their", "your",
+        "various", "cause", "we", "west", "wife",
+    ] {
+        assert_eq!(type_str(telex(), word), word, "typing {word:?}");
+    }
+    // c/p finals take only sac or nang, so `pềc` already gives up.
+    assert_eq!(type_str(telex(), "perfec"), "perfec");
+    // `đc` is a common Vietnamese abbreviation, and a stroke is not a mark.
+    assert_eq!(type_str(telex(), "ddc "), "đc ");
+    assert_eq!(type_str(telex(), "ddc."), "đc.");
+    // Valid Vietnamese is never touched on the way.
+    assert_eq!(type_str(telex(), "nguwowfi"), "người");
+    assert_eq!(type_str(telex(), "giowf"), "giờ");
+    assert_eq!(type_str(telex(), "quyeets"), "quyết");
+}
+
+/// DELETE straight after a mid-word restore undoes it, so a stray key in a
+/// Vietnamese word costs one backspace. Any other key in between commits the
+/// restore.
+#[test]
+fn delete_right_after_mid_word_restore_undoes_it() {
+    assert_eq!(type_str(telex(), "vieejtt"), "vieejtt");
+    assert_eq!(type_str(telex(), "vieejtt\u{8}"), "việt");
+    assert_eq!(type_str(telex(), "vieejtt\u{8}s"), "viết");
+    assert_eq!(type_str(telex(), "vieejtt\u{8} "), "việt ");
+    assert_eq!(type_str(telex(), "perfecti\u{8}"), "perfect");
+    // Exact even when the triggering vowel made `check_grammar` move the tone.
+    assert_eq!(type_str(telex(), "cause\u{8}"), "cáu");
+}
+
+/// ESC replays the raw keys only while they still describe the word: after a
+/// DELETE erased a composed letter they do not, so ESC passes through.
+#[test]
+fn esc_after_deleting_a_composed_letter_passes_through() {
+    assert_eq!(type_str(telex(), "vieejt\u{8}\u{1b}"), "vieej");
+    assert_eq!(type_str(telex(), "tex\u{8}\u{1b}"), "t");
 }
 
 /// ESC undoes the composition of the word in progress, including for a valid
@@ -431,12 +518,15 @@ fn word_longer_than_max_buff_exercises_long_word_helper() {
     // sets temp_disable_key and routes every subsequent key through the
     // plain-insert path -- so the tail types out completely literally. This
     // is the real, oracle-verified behavior for an over-length word.
+    //
+    // `auto_restore_english` is off to keep this the oracle-verified path; with
+    // it on, the `d` that breaks the spelling restores the raw keys instead.
     let long = "vieejtddaayuwowngthueejnguoiwfkhuyees";
     assert_eq!(long.len(), 37);
-    assert_eq!(
-        type_str(telex(), long),
-        "việtđaayuwowngthueejnguoiwfkhuyees"
-    );
+    let mut o = telex();
+    o.auto_restore_english = false;
+    assert_eq!(type_str(o, long), "việtđaayuwowngthueejnguoiwfkhuyees");
+    assert_eq!(type_str(telex(), long), long);
 }
 
 // -- Task 6: temp-off-spelling / temp-off-engine / english_mode ------------
@@ -504,3 +594,120 @@ fn english_mode_accumulates_macro_key_and_clears_on_space() {
     }
     assert_eq!(lens, vec![1, 2, 3, 0]);
 }
+
+// -- English auto-restore corpus ---------------------------------------------
+//
+// Ratchets for the English auto-restore heuristics, measured over whole word
+// lists rather than hand-picked cases (see `data/README.md` for the source).
+// The English counts may only go down and the Vietnamese one must stay 0: a
+// change that improves English by breaking Vietnamese fails here.
+//
+// `en_heldout.txt` is English the dictionary does NOT contain, so its counts
+// show what the dictionary-free rules achieve on their own.
+
+/// The settings that matter for restore, in both tone orthographies.
+fn corpus_configs() -> [EngineOptions; 2] {
+    let old = telex();
+    let mut modern = telex();
+    modern.use_modern_orthography = true;
+    [old, modern]
+}
+
+/// `(shown wrong right before SPACE, still wrong after SPACE, sample)` over a
+/// word list, summed over both orthographies.
+fn english_misses(words: &str) -> (usize, usize, Vec<String>) {
+    let (mut before, mut after, mut sample) = (0, 0, Vec::new());
+    for opts in corpus_configs() {
+        for line in words.lines() {
+            let word = line.split(' ').next().unwrap();
+            let mut e = Engine::new(opts);
+            let mut field = Vec::new();
+            type_into(&mut e, &mut field, word);
+            if field.iter().collect::<String>() != word {
+                before += 1;
+            }
+            type_into(&mut e, &mut field, " ");
+            let done: String = field.iter().collect();
+            if done.trim_end() != word {
+                after += 1;
+                if sample.len() < 60 {
+                    sample.push(format!("{word}->{}", done.trim_end()));
+                }
+            }
+        }
+    }
+    (before, after, sample)
+}
+
+#[test]
+fn corpus_vietnamese_is_never_restored() {
+    // Restored on purpose by the two-letter heuristic in `english.rs`.
+    let two_letter = ["as", "if", "is", "us", "of", "or"];
+    let mut changed = Vec::new();
+    for opts in corpus_configs() {
+        let mut plain = opts;
+        plain.auto_restore_english = false;
+        plain.restore_if_wrong_spelling = false;
+        let mut strict = opts;
+        strict.restore_if_wrong_spelling = true;
+        for line in include_str!("data/vi_typing.txt").lines() {
+            for keys in line.split('\t').filter(|k| !two_letter.contains(k)) {
+                let typed = format!("{keys} ");
+                let want = type_str(plain, &typed);
+                for o in [opts, strict] {
+                    let got = type_str(o, &typed);
+                    if got != want {
+                        changed.push(format!("{keys}: {want:?} -> {got:?}"));
+                    }
+                }
+            }
+        }
+    }
+    changed.dedup();
+    assert!(changed.is_empty(), "{} changed: {:?}", changed.len(), changed);
+}
+
+#[test]
+fn corpus_english_ratchet() {
+    let (before, after, sample) = english_misses(include_str!("../data/en_words.txt"));
+    println!("dictionary words: wrong before space={before} after space={after}");
+    println!("  {}", sample.join(" "));
+    let (h_before, h_after, h_sample) = english_misses(include_str!("data/en_heldout.txt"));
+    println!("held-out words: wrong before space={h_before} after space={h_after}");
+    println!("  {}", h_sample.join(" "));
+    // Before this work: 17348 / 3992 and 2316 / 454. Keeping the Telex
+    // double-key habit working (below) costs a few words with a real double
+    // right after an impossible nucleus a letter until SPACE.
+    assert!(before <= 3832 && after <= 1216, "dictionary words got worse");
+    assert!(h_before <= 425 && h_after <= 224, "held-out words got worse");
+}
+
+/// How a Telex user types English today: doubling a tone key where a single
+/// one would compose (`tesst` for `test`, `aerrial` for `aerial`). Each line
+/// was produced by the engine as it was before English detection (commit
+/// be221e6), so it is the muscle memory the new rules must not break. Only
+/// the words where the doubled spelling is itself the more common word
+/// (`less` typed for `les`) may come out differently.
+#[test]
+fn corpus_telex_double_key_habit_still_works() {
+    let (mut before, mut after, mut sample) = (0, 0, Vec::new());
+    for line in include_str!("data/en_escape_typing.txt").lines() {
+        let (typed, word) = line.split_once('\t').unwrap();
+        if type_str(telex(), typed) != word {
+            before += 1;
+        }
+        let done = type_str(telex(), &format!("{typed} "));
+        if done.trim_end() != word {
+            after += 1;
+            sample.push(format!("{typed}->{}", done.trim_end()));
+        }
+    }
+    assert_eq!(before, 0, "the double-key habit broke while typing");
+    assert!(after <= 17, "{after} broke after SPACE: {sample:?}");
+}
+
+
+
+
+
+

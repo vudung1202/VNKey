@@ -129,6 +129,9 @@ Nếu muốn quyền được nhớ qua các lần build lại (khi phát triể
   hợp, Vietnamese Locale CP1258.
 - **Chính tả & tự khôi phục:** phát hiện gõ sai chính tả, tự trả lại phím
   gốc; chọn kiểu chính tả hiện đại/cũ (oà/òa, uý/úy...).
+- **Tự nhận diện tiếng Anh:** `perfect`, `server`, `message` ra đúng chữ, dấu
+  sai được gỡ ngay khi từ hết khả năng là tiếng Việt. Từ trùng âm tiết Việt
+  (`this`→thí) thì nhấn ESC.
 - **Gõ nhanh (quick telex/consonant):** cc→ch, gg→gi, kk→kh, nn→ng,
   qq→qu, pp→ph, tt→th, uu→ươ; phụ âm đầu f/j/w; phụ âm cuối g/h/k.
   z/w/j/f như phím phụ âm gõ tắt kiểu Telex.

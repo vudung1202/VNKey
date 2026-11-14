@@ -12,7 +12,7 @@ thứ **không tự suy ra được từ code** - ranh giới kiến trúc, các
 ```sh
 export PATH="$HOME/.cargo/bin:$PATH"     # BẮT BUỘC, cargo không có sẵn trong PATH
 
-cargo test --workspace                    # 231 test, phải xanh trước khi commit
+cargo test --workspace                    # 239 test, phải xanh trước khi commit
 cargo clippy --workspace --all-targets -- -D warnings
 npm run build                             # tsc + vite (typecheck UI)
 npx tauri build --debug                   # ra target/debug/bundle/macos/VNKey.app
@@ -85,6 +85,17 @@ gõ, `thao`+`r` và `phuo`+`w` yêu cầu engine sửa y hệt nhau (bpc=2) mà 
 được thanh địa chỉ khỏi nội dung trang, mà nội dung trang mới là chỗ hỏng tài
 liệu, nên nội dung trang thắng. Có test ghim trong `quirks.rs`.
 
+**9. Luật nhận diện tiếng Anh phải qua corpus, không qua cảm giác.** Mọi luật
+trong `english.rs` đều có ca tiếng Việt thật bị nó phá: ngưỡng tần suất từng
+biến `dóc`, `quít`, `tóp`, `tét` thành tiếng Anh vì chúng hiếm trên web. Test
+`corpus_vietnamese_is_never_restored` gõ ~7k âm tiết Việt và phải ra y nguyên;
+`corpus_telex_double_key_habit_still_works` gõ ~6.5k từ Anh kiểu gõ đôi phím
+quen thuộc (`tesst` ra `test`) và cũng phải giữ nguyên - một luật "khôi phục
+chữ đôi bị nuốt" từng phá đúng thói quen này;
+`corpus_english_ratchet` chỉ được giảm. Dữ liệu trong
+`crates/vnkey-engine/data/` là sinh ra (`gen_wordlists.py`), đừng sửa tay;
+nguồn và giấy phép ở `data/README.md`.
+
 ## Thêm một tuỳ chọn mới: phải đi hết 6 tầng
 
 1. `crates/vnkey-engine/src/options.rs` - `EngineOptions` + default
@@ -124,10 +135,16 @@ Ký tự sentinel trong `key_of`: `\u{8}` = DELETE, `\n` = ENTER, `\u{1b}` = ESC
 
 ## Giới hạn đã biết (đừng coi là bug)
 
-- **Tự khôi phục tiếng Anh không bắt được từ trùng âm tiết Việt hợp lệ**:
-  `this`→thí, `mix`→mĩ, `test`→tét, `is`→í. Không luật nào phân biệt được nếu
-  không có từ điển. **ESC** là lối thoát (khôi phục vô điều kiện). Đã ghi vào
+- **Tự khôi phục tiếng Anh không bắt được từ trùng âm tiết Việt có thật**:
+  `this`→thí, `mix`→mĩ, `test`→tét, `been`→bên. Từ điển chỉ khôi phục khi âm
+  tiết soạn ra không tồn tại trong tiếng Việt (`more`→moẻ), vì âm tiết hiếm vẫn
+  là tiếng Việt (bánh tét). `boot`→bôt cũng giữ vì `bột` phổ biến hơn (dấu
+  có thể gõ sau). **ESC** là lối thoát (khôi phục vô điều kiện). Đã ghi vào
   golden test để lần sau sửa là thay đổi có chủ ý.
+- **Dấu sai vẫn loé 1-3 phím trước khi khôi phục**: `perfect` hiện `pẻ`, `pè`,
+  `pề` rồi mới về `perfect` ở phím `c`. Chặn sớm hơn phải đoán từ trước, dễ
+  phá tiếng Việt. ⌫ ngay sau lần khôi phục giữa từ thì hoàn tác nó (`việtt` ⌫
+  ra `việt`).
 - **`ass`→`as` là hành vi tiếng Việt cố ý** (có test ghim) và giống hệt
   `off`→`of` về cấu trúc, nên không luật tự động nào tách được hai ca này.
 - Từ dài quá 32 phím mất lịch sử phím thô, không khôi phục trung thực được.

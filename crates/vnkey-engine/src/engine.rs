@@ -45,9 +45,18 @@ pub struct Engine {
 
     pub(crate) buf: Buffer,
     /// Raw keystrokes for the word in progress, kept beside `buf.states`
-    /// because that array is rewound by the duplicate-key undo path. Only the
-    /// ESC restore reads it; see `english`'s module doc.
+    /// because that array is rewound by the duplicate-key undo path. ESC and
+    /// the English restores read it; see `english`'s module doc.
     pub(crate) raw: crate::english::RawJournal,
+    /// The word in progress was put back to its raw keys mid-word; it stays
+    /// English (no more composing) until the word ends.
+    pub(crate) raw_restored: bool,
+    /// The state from before the key that triggered `english::restore_mid_word`,
+    /// kept for exactly one key so a DELETE right after can undo it.
+    pub(crate) restore_undo: Option<(Buffer, crate::english::RawJournal)>,
+    /// The previous key was a tone key that went in plain only because the
+    /// vowels cannot be Vietnamese; see `english::swallow_repeated_mark_key`.
+    pub(crate) mark_key_forced_plain: bool,
 
     // engine flags / vowel-position scratch (mirror the like-named C++ statics)
     pub(crate) temp_disable_key: bool,
@@ -91,12 +100,18 @@ pub struct Engine {
 impl Engine {
     /// Apply options and start a fresh engine.
     pub fn new(opts: EngineOptions) -> Self {
+        // Parse the word lists now rather than on the first word typed.
+        std::sync::LazyLock::force(&crate::english::ENGLISH_WORDS);
+        std::sync::LazyLock::force(&crate::english::VIETNAMESE_SYLLABLES);
         Engine {
             opts,
             spell_check_on: opts.check_spelling,
             use_spell_checking_before: opts.check_spelling,
             buf: Buffer::new(),
             raw: crate::english::RawJournal::default(),
+            raw_restored: false,
+            restore_undo: None,
+            mark_key_forced_plain: false,
             temp_disable_key: false,
             is_corect: false,
             is_changed: false,
@@ -198,6 +213,8 @@ impl Engine {
         self.has_handle_quick_consonant = false;
         self.buf.long_word_helper.clear();
         self.raw.clear();
+        self.raw_restored = false;
+        self.restore_undo = None;
     }
 
     /// Only flips the *current* spelling flag (`spell_check_on`) when
@@ -326,6 +343,8 @@ impl Engine {
                     self.special_char = data;
                     self.check_spelling(false);
                 } else {
+                    // The rebuilt word did not come from keys typed now.
+                    self.raw.invalidate();
                     for (i, &w) in data.iter().enumerate() {
                         self.buf.word[i] = w;
                     }
@@ -777,6 +796,10 @@ impl Engine {
     ) -> &HookState {
         let data = keycode;
         let is_caps = caps_status == 1 || caps_status == 2;
+        // Only the very next key may undo a mid-word restore, or repeat a
+        // tone key that went in plain.
+        let restore_undo = self.restore_undo.take();
+        let mark_key_forced_plain = std::mem::take(&mut self.mark_key_forced_plain);
 
         if (is_number_key(data) && caps_status == 1)
             || other_control
@@ -832,8 +855,18 @@ impl Engine {
                 {
                     self.temp_disable_key = true;
                 }
+                // Keyboard only: a mouse click has already moved the caret.
+                let english = event == KeyEvent::Keyboard && self.should_restore_raw_at_word_end();
+                if english {
+                    self.temp_disable_key = true;
+                }
+                let code = HookCode::RestoreAndStartNewSession;
                 if self.temp_disable_key
-                    && !self.check_restore_if_wrong_spelling(HookCode::RestoreAndStartNewSession)
+                    && !(if english {
+                        self.restore_from_raw(code)
+                    } else {
+                        self.check_restore_if_wrong_spelling(code)
+                    })
                 {
                     self.hook.code = HookCode::DoNothing;
                 }
@@ -903,6 +936,12 @@ impl Engine {
             {
                 self.temp_disable_key = true;
             }
+            // Restores from the raw journal, which still has keys a doubled
+            // tone key swallowed (`message`), unlike `buf.states`.
+            let english = self.should_restore_raw_at_word_end();
+            if english {
+                self.temp_disable_key = true;
+            }
             if self.opts.use_macro && !self.has_handled_macro && self.find_macro() {
                 // macro
                 self.hook.code = HookCode::ReplaceMacro;
@@ -919,7 +958,12 @@ impl Engine {
                 && !self.has_handled_macro
             {
                 // restore key if wrong spelling
-                if !self.check_restore_if_wrong_spelling(HookCode::Restore) {
+                let restored = if english {
+                    self.restore_from_raw(HookCode::Restore)
+                } else {
+                    self.check_restore_if_wrong_spelling(HookCode::Restore)
+                };
+                if !restored {
                     self.hook.code = HookCode::DoNothing;
                 }
                 self.space_count += 1;
@@ -947,6 +991,10 @@ impl Engine {
             return &self.hook;
         } else if data == KEY_DELETE {
             // DELETE path.
+            if let Some(snapshot) = restore_undo {
+                self.undo_mid_word_restore(snapshot);
+                return &self.hook;
+            }
             self.hook.code = HookCode::DoNothing;
             self.hook.ext_code = 2; // delete
 
@@ -966,7 +1014,20 @@ impl Engine {
                 if self.buf.state_index > 0 {
                     self.buf.state_index -= 1;
                 }
-                self.raw.pop();
+                // Dropping the last key is only right when that key is the
+                // plain letter being erased. Erasing a composed letter (`ẽ`
+                // from `tex`) maps to no clean set of keys, so stop trusting
+                // the journal for this word.
+                // shortcut: a letter re-typed after a swallowed duplicate
+                // (`off` then DELETE) still pops one key; track per-key
+                // output if a real case shows up.
+                if self.buf.index > 0
+                    && self.raw.last() == Some(self.buf.word[self.buf.index as usize - 1])
+                {
+                    self.raw.pop();
+                } else if self.buf.index > 0 {
+                    self.raw.invalidate();
+                }
                 if self.buf.index > 0 {
                     self.buf.index -= 1;
                     self.buf.restore_long_word_helper();
@@ -1012,13 +1073,23 @@ impl Engine {
             self.save_special_char();
         }
 
+        let before = self.mid_word_snapshot();
         self.buf.push_state(data, is_caps);
         // Mirrors `push_state`, but never rewound by the duplicate-key undo
         // below (which decrements `state_index`), so ESC can still replay the
         // keys the user actually pressed.
         self.raw.push(data as u32 | if is_caps { CAPS_MASK } else { 0 });
 
-        if !is_special_key(self.input_type(), data) || self.temp_disable_key {
+        let not_vietnamese_shape = self.nucleus_rules_out_vietnamese();
+        let forced_plain = not_vietnamese_shape
+            && !self.temp_disable_key
+            && !self.raw_restored
+            && is_mark_key(self.input_type(), data);
+        if !is_special_key(self.input_type(), data)
+            || self.temp_disable_key
+            || self.raw_restored
+            || not_vietnamese_shape
+        {
             if self.opts.quick_telex
                 && is_quick_telex_key(
                     self.buf.index,
@@ -1037,7 +1108,12 @@ impl Engine {
                 self.hook.backspace_count = 0;
                 self.hook.new_char_count = 0;
                 self.hook.ext_code = 3; // normal key
-                self.insert_key(data, is_caps, true);
+                if mark_key_forced_plain && self.repeats_plain_mark_key(data) {
+                    self.swallow_repeated_mark_key();
+                } else {
+                    self.insert_key(data, is_caps, true);
+                    self.mark_key_forced_plain = forced_plain;
+                }
             }
         } else {
             self.hook.code = HookCode::DoNothing;
@@ -1088,6 +1164,10 @@ impl Engine {
             self.upper_case_status = 0;
         }
 
+        if !is_bracket_key(data) {
+            self.restore_mid_word(before, data);
+        }
+
         // case [ ]
         if is_bracket_key(data)
             && (is_bracket_key((self.hook.char_data[0] & 0xFFFF) as u16)
@@ -1127,6 +1207,7 @@ impl Engine {
     ) -> &HookState {
         let data = keycode;
         self.hook.code = HookCode::DoNothing;
+        self.restore_undo = None;
         if st == KeyEventState::MouseDown || (other_control && !caps) {
             self.hook.macro_key.clear();
             self.will_temp_off_engine = false;
