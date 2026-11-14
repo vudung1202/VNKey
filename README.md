@@ -16,6 +16,22 @@ VNKey chạy trên thanh menu: **V** khi bật tiếng Việt, **E** khi tắt t
 - **Tiện ích:** chuyển mã nội dung Clipboard, chuyển hoa/thường, bỏ dấu,
   phím tắt tùy chỉnh, khởi động cùng macOS và giao diện sáng/tối/theo hệ thống.
 
+## Cài nhanh
+
+Trên Mac Apple Silicon, dán lệnh này vào Terminal:
+
+```sh
+curl -fsSL https://github.com/vudung1202/VNKey/releases/latest/download/install.sh | bash
+```
+
+Lệnh tải bản mới nhất, cài hoặc thay bản cũ trong **Applications** rồi mở VNKey.
+Sau đó:
+
+1. Vào **System Settings → Privacy & Security → Accessibility**, bật **VNKey**.
+2. Bấm **Khởi động lại VNKey** trong cửa sổ VNKey.
+
+Chạy lại lệnh trên để cập nhật. Cấu hình và bảng gõ tắt được giữ nguyên.
+
 ## Cài đặt từ mã nguồn
 
 ### Yêu cầu
@@ -173,6 +189,9 @@ npm run tauri build
 Bản release nằm ở `target/release/bundle/macos/VNKey.app`; tệp `.dmg` nằm
 trong `target/release/bundle/dmg/` nếu bước đóng gói DMG thành công. Build
 thông thường theo kiến trúc máy đang chạy, không mặc định tạo bản universal.
+
+Khi phát hành, tải kèm `install.sh` lên release cùng file `.dmg`, nếu không lệnh cài
+nhanh trả về lỗi 404: `gh release upload v<phiên bản> install.sh`.
 
 Cấu hình mặc định ký ad-hoc cả gói app (`"signingIdentity": "-"`), nên bản
 tải về mở được qua **System Settings → Privacy & Security → Open Anyway** mà
