@@ -351,6 +351,7 @@ fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
                 let next = if s.language == 1 { 0 } else { 1 };
                 crate::commands::set_language_settings(s, next)
             });
+            crate::platform::mac::smart_switch::remember_language_choice(app);
         }
         "input_type_telex" => set_input_type(app, InputType::Telex as u8),
         "input_type_vni" => set_input_type(app, InputType::Vni as u8),

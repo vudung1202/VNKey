@@ -18,7 +18,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use parking_lot::Mutex;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use vnkey_engine::{CodeTable, SmartSwitchTable};
 
 use super::ffi;
@@ -178,6 +178,18 @@ pub fn record_manual_switch(core: &mut EngineCore, config: &SharedConfig) {
     };
     let packed = pack_status(config.enabled.load(Ordering::Relaxed), config.code_table());
     core.smart_switch.set_status(&bundle_id, packed);
+}
+
+/// Remember a language choice made from the status-bar menu or the Control
+/// Panel, exactly as the switch hotkey does. Without it those choices only
+/// lasted until the next app switch, which restored the old remembered value.
+/// The choice goes to the app the user was in: VNKey's own windows never
+/// become the cached frontmost app (see [`on_active_app`]).
+pub(crate) fn remember_language_choice(app: &AppHandle) {
+    let engine = app.state::<Arc<Mutex<EngineCore>>>();
+    let config = app.state::<Arc<SharedConfig>>();
+    record_manual_switch(&mut engine.lock(), &config);
+    persist_after_manual_switch(app, &engine);
 }
 
 /// Fire-and-forget: persist the smart-switch table after a manual-switch

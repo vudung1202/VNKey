@@ -182,6 +182,7 @@ pub fn set_settings(app: AppHandle, settings: Settings) {
 #[tauri::command]
 pub fn set_language(app: AppHandle, language: u8) {
     apply_and_broadcast(&app, |s| set_language_settings(s, language));
+    crate::platform::mac::smart_switch::remember_language_choice(&app);
 }
 
 #[tauri::command]

@@ -6,7 +6,7 @@ mod inject;
 pub(crate) mod hotkey;
 mod layout;
 mod quirks;
-mod smart_switch;
+pub(crate) mod smart_switch;
 mod tap;
 mod tis;
 mod workspace;
