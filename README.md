@@ -174,3 +174,9 @@ kiểm tay.
 
 Thuật toán gõ tiếng Việt (bảng mã, quy tắc đặt dấu, kiểm tra chính tả) tham
 khảo từ [OpenKey](https://github.com/tuyenvm/OpenKey).
+
+Tự nhận diện tiếng Anh dùng danh sách âm tiết tiếng Việt từ
+[hunspell-vi](https://github.com/1ec5/hunspell-vi) (GPL-3.0-or-later, dựa trên
+danh sách từ của Hồ Ngọc Đức) và tần suất từ từ
+[wordfreq](https://github.com/rspeer/wordfreq) (dữ liệu CC BY-SA 4.0). Nguồn
+chi tiết và cách sinh lại: [crates/vnkey-engine/data/README.md](./crates/vnkey-engine/data/README.md).
