@@ -174,8 +174,10 @@ Bản release nằm ở `target/release/bundle/macos/VNKey.app`; tệp `.dmg` n�
 trong `target/release/bundle/dmg/` nếu bước đóng gói DMG thành công. Build
 thông thường theo kiến trúc máy đang chạy, không mặc định tạo bản universal.
 
-Cấu hình mặc định không đặt `signingIdentity`. Hướng dẫn dùng chứng chỉ tự-ký
-khi phát triển nằm trong [docs/dev-signing.md](docs/dev-signing.md).
+Cấu hình mặc định ký ad-hoc cả gói app (`"signingIdentity": "-"`), nên bản
+tải về mở được qua **System Settings → Privacy & Security → Open Anyway** mà
+không cần `xattr`. Hướng dẫn dùng chứng chỉ tự-ký khi phát triển nằm trong
+[docs/dev-signing.md](docs/dev-signing.md).
 
 ### Kiểm thử
 

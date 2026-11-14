@@ -1,9 +1,13 @@
 # Dev code signing
 
-VNKey builds unsigned (ad-hoc signature) by default, and `tauri.conf.json`
-in this repo deliberately does **not** set `signingIdentity` - ad-hoc is
-the intentional choice for the current stage of the project (see the M5
-audit task notes). This is fine for a one-off build, but ad-hoc signatures
+VNKey builds with an ad-hoc signature by default: `tauri.conf.json` sets
+`signingIdentity` to `"-"`, which ad-hoc signs the whole app bundle rather
+than leaving only the linker's signature on the executable. Without that,
+the bundle has no sealed resources, and a downloaded copy is reported as
+"damaged" with no way to open it short of `xattr -cr`; with it, Gatekeeper
+offers **Open Anyway** in System Settings. Ad-hoc is still the intentional
+choice for the current stage of the project (no Developer ID). This is fine
+for a one-off build, but ad-hoc signatures
 change on every rebuild, and macOS ties TCC-gated permission grants
 (Accessibility, which VNKey requests to intercept/inject keys - see Task 8)
 to a specific code signature. In practice that means: every time you
@@ -41,7 +45,7 @@ decision).
 
 ## Enable signing in tauri.conf.json
 
-Once the certificate exists, add it to `src-tauri/tauri.conf.json`:
+Once the certificate exists, replace the `"-"` in `src-tauri/tauri.conf.json`:
 
 ```json
 {

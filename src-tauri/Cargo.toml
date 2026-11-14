@@ -1,6 +1,6 @@
 [package]
 name = "vnkey"
-version = "0.2.0"
+version = "0.2.1"
 description = "VNKey - Vietnamese input method for macOS"
 edition = "2024"
 
