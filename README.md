@@ -1,182 +1,211 @@
 # VNKey
 
-<!-- TODO: replace https://github.com/yourname/VNKey with the real repo URL everywhere it appears (this file, docs/, src/lib/strings.ts) once the project has a home. -->
-
-VNKey là bộ gõ tiếng Việt cho macOS, viết bằng Rust +
-[Tauri](https://tauri.app): engine thuần Rust (không FFI, không C++), tầng
-macOS dùng `CGEventTap` viết bằng Rust/objc2, giao diện Tauri +
-React/TypeScript.
-
-> Repo gốc dự án (placeholder, sẽ thay khi có repo thật):
-> **https://github.com/yourname/VNKey** <!-- TODO -->
-
-## English summary
-
-VNKey is a Vietnamese input method for macOS built with Rust + Tauri. The
-typing engine is pure Rust (no FFI, no C++) covered by a golden test suite.
-The macOS integration (key interception/injection, hotkeys, smart per-app
-switching, sleep/wake handling) is written directly against
-AppKit/CoreGraphics via `objc2`, and the UI (Control Panel, macro editor,
-convert tool, About) is a Tauri v2 + React/TypeScript app.
-See the sections below (in Vietnamese) for build instructions, the
-Accessibility permission grant, and the test suite.
-
-## Kiến trúc
-
-```
-crates/vnkey-engine/   engine thuần Rust: bảng mã, xử lý phím, chính tả,
-                       gõ tắt (macro), smart-switch, chuyển mã.
-                       Không phụ thuộc Tauri/macOS -- test được độc lập.
-src-tauri/src/         tầng macOS + Tauri:
-  platform/mac/          CGEventTap bắt/inject phím, hotkey, TIS
-                          (other-language), quan sát vòng đời app
-                          (sleep/wake, đổi app/Space), smart-switch cache.
-  settings/               settings.json + macros.bin + smart_switch.bin.
-  tray.rs, commands.rs,   tray 15 mục, IPC, pasteboard, events.
-  pasteboard.rs
-src/                   UI React/TypeScript (Bảng điều khiển, Gõ tắt,
-                       Công cụ chuyển mã, Giới thiệu), route theo cửa sổ
-                       (window label) trong main.tsx.
-```
-
-Engine (`vnkey-engine`) không biết gì về Tauri hay macOS; toàn bộ phần nền
-tảng nằm trong `src-tauri`. Đây là ranh giới quan trọng nhất của kiến trúc:
-engine test được độc lập (golden + unit test), tầng macOS chỉ test được bằng
-unit test (mock) + kiểm tay.
-
-Chi tiết bên trong (luồng một phím, mô hình luồng, giao thức engine/host):
-xem [docs/architecture.md](./docs/architecture.md).
-
-## Build từ nguồn
-
-**Yêu cầu:**
-- macOS (Apple Silicon hoặc Intel).
-- Rust (qua [rustup](https://rustup.rs)) -- bản `edition = "2024"`, dùng
-  `rustc`/`cargo` mới.
-- Node.js 20+ và npm.
-- Xcode Command Line Tools (`xcode-select --install`) -- cần cho
-  `objc2`/CoreGraphics FFI và để build bundle `.app`.
-
-**Cài đặt:**
-
-```sh
-git clone <repo-url> VNKey   # TODO: thay <repo-url> bằng URL thật
-cd VNKey
-npm install
-```
-
-**Build & chạy khi phát triển** (hot reload UI):
-
-```sh
-npx tauri dev
-```
-
-**Build bản debug** (nhanh, không tối ưu, dùng để kiểm tra nhanh):
-
-```sh
-npx tauri build --debug
-```
-
-Artifact: `target/debug/bundle/macos/VNKey.app` (và
-`target/debug/bundle/dmg/VNKey_<version>_aarch64.dmg` nếu bước đóng DMG
-thành công).
-
-**Build bản release** (tối ưu, dùng để phân phối):
-
-```sh
-npx tauri build
-```
-
-Artifact: `target/release/bundle/macos/VNKey.app` và
-`target/release/bundle/dmg/VNKey_<version>_aarch64.dmg`.
-
-Ứng dụng được build **ad-hoc sign** (không có Developer ID) -- xem phần
-"Ký code" bên dưới về hệ quả với quyền Accessibility.
-
-## Cấp quyền Trợ năng (Accessibility)
-
-VNKey cần quyền **Accessibility** để bắt và chèn phím vào các ứng dụng
-khác (giống mọi bộ gõ tiếng Việt trên macOS: Unikey, EVKey...).
-Không có quyền này, VNKey mở lên sẽ chỉ hiện màn hình yêu cầu cấp quyền,
-không gõ được.
-
-1. Mở VNKey lần đầu -- nếu chưa có quyền, cửa sổ Bảng điều khiển sẽ tự hiện
-   màn hình "Cần cấp quyền Trợ năng" với nút **Mở cài đặt Trợ năng**.
-2. Hoặc vào thủ công: **System Settings → Privacy & Security →
-   Accessibility**, bật công tắc cho **VNKey**.
-3. Khởi động lại VNKey (nút **Khởi động lại VNKey** trên chính màn hình đó,
-   hoặc thoát/mở lại qua tray).
-
-### Lưu ý về ad-hoc signing
-
-VNKey build ad-hoc (không có certificate ổn định). macOS gắn quyền TCC
-(Accessibility) với **chữ ký code** của app, mà chữ ký ad-hoc **đổi mỗi lần
-build lại** -- nghĩa là mỗi lần bạn `cargo build`/`tauri build` lại từ
-nguồn, macOS sẽ quên quyền đã cấp và bạn phải cấp lại trong System
-Settings. Đây là hành vi bình thường khi build từ nguồn, không phải lỗi.
-
-Nếu muốn quyền được nhớ qua các lần build lại (khi phát triển), xem
-[docs/dev-signing.md](./docs/dev-signing.md) để tạo certificate tự-ký
-"VNKey Dev" ổn định và cấu hình `signingIdentity` trong
-`tauri.conf.json`. **Bản build mặc định trong repo này KHÔNG bật
-`signingIdentity`** (dùng ad-hoc) -- đây là lựa chọn có chủ đích cho giai
-đoạn hiện tại, chưa cấu hình sẵn trong `tauri.conf.json`.
+Bộ gõ tiếng Việt cho macOS, hỗ trợ Telex, VNI, gõ tắt và chuyển mã văn bản.
+VNKey chạy trên thanh menu: **V** khi bật tiếng Việt, **E** khi tắt tiếng Việt.
 
 ## Tính năng
 
-- **4 kiểu gõ:** Telex, VNI, Simple Telex 1, Simple Telex 2.
-- **5 bảng mã:** Unicode dựng sẵn, TCVN3 (ABC), VNI Windows, Unicode tổ
-  hợp, Vietnamese Locale CP1258.
-- **Chính tả & tự khôi phục:** phát hiện gõ sai chính tả, tự trả lại phím
-  gốc; chọn kiểu chính tả hiện đại/cũ (oà/òa, uý/úy...).
-- **Tự nhận diện tiếng Anh:** `perfect`, `server`, `message` ra đúng chữ, dấu
-  sai được gỡ ngay khi từ hết khả năng là tiếng Việt. Từ trùng âm tiết Việt
-  (`this`→thí) thì nhấn ESC.
-- **Gõ nhanh (quick telex/consonant):** cc→ch, gg→gi, kk→kh, nn→ng,
-  qq→qu, pp→ph, tt→th, uu→ươ; phụ âm đầu f/j/w; phụ âm cuối g/h/k.
-  z/w/j/f như phím phụ âm gõ tắt kiểu Telex.
-- **Gõ tắt (macro):** bảng gõ tắt tự định nghĩa, tự động viết hoa theo
-  ngữ cảnh (ko/Ko/KO), dùng được cả khi tắt gõ tiếng Việt.
-- **Smart-switch:** nhớ trạng thái Việt/Anh và bảng mã riêng cho từng ứng
-  dụng.
-- **Hotkey:** phím tắt chuyển Việt/Anh (mặc định ⌥Z) có tiếng beep tùy
-  chọn; tổ hợp Ctrl/Cmd tạm tắt engine; bỏ qua khi gõ ở layout bàn phím
-  khác tiếng Anh (other-language).
-- **Công cụ chuyển mã:** chuyển đổi giữa 5 bảng mã, kèm chuyển hoa/thường
-  và bỏ dấu; có phím tắt chuyển mã nhanh nội dung Clipboard.
-- **Giao diện:** sáng/tối (theo hệ thống hoặc tự chọn trong tab Hệ thống).
-- **Sửa lỗi riêng cho từng ứng dụng:** Chrome/Chromium, Terminal,
-  Spotlight, Excel/Sublime (theo danh sách quirk per-app).
-- **Tray:** menu 15 mục (bật/tắt, kiểu gõ, bảng mã, công cụ chuyển mã, mở
-  Bảng điều khiển/Gõ tắt/Giới thiệu, thoát...).
+- **Kiểu gõ và bảng mã:** Telex, VNI, Simple Telex 1, Simple Telex 2; Unicode
+  dựng sẵn, TCVN3 (ABC), VNI Windows, Unicode tổ hợp và Vietnamese Locale CP 1258.
+- **Chính tả và khôi phục:** chọn cách đặt dấu `òa`/`oà`, `úy`/`uý`; kiểm tra
+  chính tả, tự khôi phục từ tiếng Anh và nhấn `Esc` để trả lại phím gốc của từ đang gõ.
+- **Gõ nhanh và gõ tắt:** mở rộng phụ âm, tạo bảng gõ tắt, nhập/xuất tệp `.txt`,
+  tự viết hoa theo phím tắt và tùy chọn dùng gõ tắt cả ở chế độ tiếng Anh.
+- **Thiết lập theo ứng dụng:** ghi nhớ chế độ Việt/Anh và bảng mã riêng;
+  hỗ trợ xử lý lỗi gợi ý trong trình duyệt và một số ứng dụng.
+- **Tiện ích:** chuyển mã nội dung Clipboard, chuyển hoa/thường, bỏ dấu,
+  phím tắt tùy chỉnh, khởi động cùng macOS và giao diện sáng/tối/theo hệ thống.
 
-## Testing
+## Cài đặt từ mã nguồn
+
+### Yêu cầu
+
+- Máy Mac dùng Apple Silicon hoặc Intel.
+- Rust stable mới nhất và Cargo, cài qua [rustup](https://rustup.rs).
+- Node.js 22.12+ và npm; cũng hỗ trợ nhánh Node.js 20 từ phiên bản 20.19.
+- Xcode Command Line Tools. Nếu chưa có, chạy `xcode-select --install`.
+
+### Build và mở ứng dụng
+
+1. Tải mã nguồn và cài các gói giao diện:
+
+   ```sh
+   git clone https://github.com/vudung1202/VNKey.git
+   cd VNKey
+   npm ci
+   ```
+
+2. Build bản release và mở VNKey:
+
+   ```sh
+   ./retest.sh
+   ```
+
+   Script build ứng dụng, thoát bản VNKey đang chạy, đặt lại quyền Accessibility
+   của VNKey rồi mở bản mới. Ứng dụng nằm ở
+   `target/release/bundle/macos/VNKey.app`; script không cài vào `/Applications`.
+
+3. Vào **System Settings → Privacy & Security → Accessibility**, bật **VNKey**.
+   Có thể mở trang này bằng nút **Mở cài đặt Trợ năng** trong ứng dụng.
+
+4. Nhấn **Khởi động lại VNKey** trên màn hình cấp quyền. VNKey cần quyền này
+   để nhận và chèn phím vào các ứng dụng khác.
+
+**Sau mỗi lần build lại:** chữ ký ad-hoc thay đổi nên macOS có thể không còn
+chấp nhận quyền đã cấp, kể cả khi công tắc VNKey vẫn bật. Dùng `./retest.sh`
+để xử lý quyền cũ, sau đó cấp quyền và khởi động lại như trên.
+
+## Sử dụng
+
+### Bắt đầu gõ
+
+1. Chọn nguồn nhập **ABC** hoặc **U.S.** của macOS; tắt các bộ gõ tiếng Việt
+   khác để tránh xử lý phím hai lần.
+2. Nhấn chữ **V/E** trên thanh menu, mở **Bảng điều khiển...**.
+3. Chọn **Telex**, **Unicode dựng sẵn** và chế độ **Tiếng Việt**.
+4. Mở một ô nhập văn bản, gõ `vieejt` rồi nhấn dấu cách. Kết quả: `việt `.
+
+Phím chuyển Việt/Anh mặc định là **⌥Z (Option+Z)**. Đổi phím này tại
+**Phím chuyển** trong Bảng điều khiển. Có thể đổi kiểu gõ và bảng mã ngay từ
+menu **V/E**.
+
+### Gõ xen kẽ tiếng Anh
+
+Trong tab **Bộ gõ**, hai tùy chọn sau mặc định được bật:
+
+- **Tự động khôi phục từ tiếng Anh:** trả lại phím gốc khi nhận diện được
+  từ tiếng Anh, trong lúc gõ hoặc khi kết thúc từ.
+- **Nhấn ESC để khôi phục từ đang gõ:** chủ động hoàn tác việc đặt dấu của
+  từ hiện tại. Ví dụ, gõ `this` rồi nhấn `Esc` để nhận `this` thay vì `thí`.
+
+Nhấn `Esc` trước dấu cách hoặc dấu câu. Các từ trùng âm tiết tiếng Việt như
+`this`, `mix`, `test`, `been` không được tự động khôi phục chỉ vì cũng là từ
+tiếng Anh. Khi gõ một đoạn tiếng Anh dài, dùng **⌥Z** để chuyển chế độ.
+
+### Gõ tắt và gõ nhanh
+
+1. Mở tab **Gõ tắt**, bật **Cho phép gõ tắt**.
+2. Chọn **Bảng gõ tắt...** để thêm từ viết tắt và nội dung thay thế.
+3. Gõ từ viết tắt trong ứng dụng đích rồi nhấn dấu cách để mở rộng.
+
+Bảng gõ tắt có nút nhập/xuất tệp `.txt`. Khi nhập, ứng dụng hỏi có giữ lại
+các mục hiện tại hay thay thế chúng.
+
+Các tùy chọn gõ nhanh nằm trong cùng tab và mặc định tắt:
+
+- **Gõ nhanh:** `cc→ch`, `gg→gi`, `kk→kh`, `nn→ng`, `qq→qu`, `pp→ph`,
+  `tt→th`, `uu→ươ`.
+- **Phụ âm đầu:** `f→ph`, `j→gi`, `w→qu`.
+- **Phụ âm cuối:** `g→ng`, `h→nh`, `k→ch`.
+
+### Chuyển mã văn bản
+
+1. Sao chép đoạn văn bản cần chuyển mã.
+2. Mở **Bảng điều khiển → Chuyển mã**, chọn bảng mã nguồn và bảng mã đích.
+3. Chọn thêm chuyển hoa/thường hoặc bỏ dấu nếu cần, rồi nhấn **Chuyển mã**.
+4. Dán kết quả từ Clipboard vào tài liệu.
+
+Thao tác này thay nội dung văn bản trong Clipboard. Có thể đặt **Phím chuyển
+mã nhanh** trong cùng tab để dùng lại cấu hình chuyển mã mà không mở bảng.
+
+## Xử lý sự cố và giới hạn
+
+| Hiện tượng | Cách kiểm tra hoặc xử lý |
+| --- | --- |
+| Không gõ được tiếng Việt | Kiểm tra chữ **V** trên thanh menu, quyền Accessibility và nguồn nhập **ABC/U.S.**. Tùy chọn tắt tiếng Việt khi nguồn nhập hệ thống khác tiếng Anh mặc định bật. |
+| Đã bật quyền nhưng bản build mới vẫn yêu cầu cấp quyền | Chạy lại qua `./retest.sh`, cấp lại quyền rồi khởi động lại VNKey. |
+| Lặp ký tự hoặc lỗi dấu ở thanh địa chỉ trình duyệt | Kiểm tra **Bộ gõ → Sửa lỗi gợi ý (trình duyệt, Excel,...)** trước. Tùy chọn **Sửa lỗi trên Chromium (beta)** không thay thế công tắc này. |
+| Từ tiếng Anh vẫn bị đặt dấu | Nhấn `Esc` khi còn đang gõ từ hoặc chuyển sang chế độ **E**. Dấu có thể xuất hiện tạm thời trước khi từ được tự khôi phục. |
+| Không thấy ứng dụng trên Dock | VNKey mặc định chạy ở thanh menu. Mở Bảng điều khiển từ chữ **V/E**, rồi bật **Hệ thống → Hiện biểu tượng trên thanh Dock** nếu cần. |
+
+Khôi phục phím gốc có giới hạn lịch sử 32 phím cho một từ; chuỗi dài hơn
+không được bảo đảm khôi phục đầy đủ. `Esc` cũng không bảo đảm khôi phục từ
+đã bị chỉnh sửa bằng phím xóa.
+
+Chức năng kiểm tra bản mới chưa kết nối nguồn phát hành. Hiện cần cập nhật
+mã nguồn và build lại; không dựa vào nút kiểm tra cập nhật trong giao diện.
+
+## Cấu hình và dữ liệu
+
+VNKey lưu dữ liệu tại `~/Library/Application Support/VNKey/`:
+
+| Tệp | Nội dung |
+| --- | --- |
+| `settings.json` | Thiết lập bộ gõ, giao diện, phím tắt và chuyển mã |
+| `macros.bin` | Bảng gõ tắt |
+| `smart_switch.bin` | Chế độ Việt/Anh và bảng mã được ghi nhớ theo ứng dụng |
+
+Thoát VNKey trước khi sao lưu hoặc chỉnh sửa trực tiếp các tệp này. Các giá
+trị đã lưu được ưu tiên hơn mặc định của phiên bản mới.
+
+## Phát triển
+
+### Chạy và đóng gói
+
+Đảm bảo Cargo có trong `PATH` trước khi dùng các lệnh build hoặc test:
+
+```sh
+export PATH="$HOME/.cargo/bin:$PATH"
+```
+
+Chạy ứng dụng ở chế độ phát triển, tự tải lại khi sửa giao diện:
+
+```sh
+npm run tauri dev
+```
+
+Chỉ chạy `npm run dev` sẽ mở máy chủ Vite, không khởi động bộ gõ macOS.
+
+Khi cần build lại và kiểm thử bộ gõ thực tế, dùng script xử lý quyền:
+
+```sh
+./retest.sh --debug
+```
+
+Bản debug nằm ở `target/debug/bundle/macos/VNKey.app`.
+
+Nếu chỉ cần đóng gói, không mở ứng dụng:
+
+```sh
+npm run tauri build
+```
+
+Bản release nằm ở `target/release/bundle/macos/VNKey.app`; tệp `.dmg` nằm
+trong `target/release/bundle/dmg/` nếu bước đóng gói DMG thành công. Build
+thông thường theo kiến trúc máy đang chạy, không mặc định tạo bản universal.
+
+Cấu hình mặc định không đặt `signingIdentity`. Hướng dẫn dùng chứng chỉ tự-ký
+khi phát triển nằm trong [docs/dev-signing.md](docs/dev-signing.md).
+
+### Kiểm thử
 
 ```sh
 cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+npm run build
 ```
 
-Chạy toàn bộ test: golden test cho engine (các chuỗi phím mẫu ra đúng kết
-quả kỳ vọng cho cả 4 kiểu gõ + 5 bảng mã + macro/smart-switch/chuyển mã) và
-unit test cho tầng macOS.
-
-Kiểm tra thêm:
+Các lệnh lần lượt chạy test Rust, kiểm tra lint Rust, rồi typecheck và build
+giao diện. Có thể kiểm thử riêng engine mà không cần chạy ứng dụng:
 
 ```sh
-cargo clippy --workspace --all-targets -- -D warnings   # lint Rust
-npm run build                                            # typecheck + build UI
+cargo test -p vnkey-engine
 ```
 
-Phần tầng macOS (CGEventTap, injection, hotkey thật, smart-switch qua đổi
-app thật...) không thể test tự động vì phụ thuộc vào `AppKit`/quyền hệ
-thống -- xem [docs/PARITY-CHECKLIST.md](./docs/PARITY-CHECKLIST.md) để tự
-kiểm tay.
+Test tự động kiểm tra thuật toán gõ, bảng mã, gõ tắt, khôi phục tiếng Anh và
+các phần logic của tầng macOS. Việc bắt/chèn phím, phím tắt hệ thống và đổi
+ứng dụng vẫn cần kiểm thử thực tế theo
+[docs/PARITY-CHECKLIST.md](docs/PARITY-CHECKLIST.md).
 
-Thuật toán gõ tiếng Việt (bảng mã, quy tắc đặt dấu, kiểm tra chính tả) tham
-khảo từ [OpenKey](https://github.com/tuyenvm/OpenKey).
+### Cấu trúc dự án
 
-Tự nhận diện tiếng Anh dùng danh sách âm tiết tiếng Việt từ
-[hunspell-vi](https://github.com/1ec5/hunspell-vi) (GPL-3.0-or-later, dựa trên
-danh sách từ của Hồ Ngọc Đức) và tần suất từ từ
-[wordfreq](https://github.com/rspeer/wordfreq) (dữ liệu CC BY-SA 4.0). Nguồn
-chi tiết và cách sinh lại: [crates/vnkey-engine/data/README.md](./crates/vnkey-engine/data/README.md).
+```text
+crates/vnkey-engine/   Engine thuần Rust, không phụ thuộc Tauri hay macOS
+src-tauri/src/        Tầng macOS, lệnh Tauri, cấu hình và menu V/E
+src/                  Giao diện React và TypeScript trên Tauri v2
+docs/                 Kiến trúc, kiểm thử thủ công và hướng dẫn ký ứng dụng
+```
+
+Phần tích hợp AppKit/CoreGraphics và `CGEventTap` nằm trong
+`src-tauri/src/platform/mac/`. Luồng xử lý phím và ranh giới engine/ứng dụng
+được mô tả trong [docs/architecture.md](docs/architecture.md).
