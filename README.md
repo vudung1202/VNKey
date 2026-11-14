@@ -16,6 +16,40 @@ VNKey chạy trên thanh menu: **V** khi bật tiếng Việt, **E** khi tắt t
 - **Tiện ích:** chuyển mã nội dung Clipboard, chuyển hoa/thường, bỏ dấu,
   phím tắt tùy chỉnh, khởi động cùng macOS và giao diện sáng/tối/theo hệ thống.
 
+## Cài nhanh bằng Terminal
+
+Bản cài đặt chỉ chạy trên Mac Apple Silicon. Repo đang ở chế độ riêng tư nên cần
+[GitHub CLI](https://cli.github.com) đã đăng nhập bằng tài khoản có quyền xem
+repo. Nếu chưa có, chạy `brew install gh && gh auth login`.
+
+1. Dán cả khối vào Terminal. Lệnh tải bản mới nhất, thay bản cũ trong
+   **Applications** (nếu có) rồi mở VNKey:
+
+   ```sh
+   bash <<'EOF'
+   set -e
+   gh release download --repo vudung1202/VNKey --pattern '*_aarch64.dmg' --output /tmp/VNKey.dmg --clobber
+   mnt=$(mktemp -d)
+   hdiutil attach -nobrowse -readonly -mountpoint "$mnt" /tmp/VNKey.dmg >/dev/null
+   pkill -f /Applications/VNKey.app/Contents/MacOS/vnkey || true
+   rm -rf /Applications/VNKey.app
+   ditto "$mnt/VNKey.app" /Applications/VNKey.app
+   hdiutil detach "$mnt" >/dev/null
+   rm -f /tmp/VNKey.dmg
+   tccutil reset Accessibility com.vnkey.app || true
+   open /Applications/VNKey.app
+   EOF
+   ```
+
+2. Vào **System Settings → Privacy & Security → Accessibility**, bật **VNKey**.
+3. Bấm **Khởi động lại VNKey** trong cửa sổ VNKey.
+
+Tải bằng `gh` nên macOS không chặn app, không cần `xattr` hay **Open Anyway**.
+Dùng lại đúng khối lệnh này để cập nhật; `tccutil reset` xóa quyền Accessibility
+cũ vì macOS không nhận quyền của bản trước. Cách cài bằng file DMG nằm trong
+ghi chú của từng bản trên trang
+[Releases](https://github.com/vudung1202/VNKey/releases).
+
 ## Cài đặt từ mã nguồn
 
 ### Yêu cầu
