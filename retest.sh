@@ -4,7 +4,7 @@
 # Ad-hoc sign: mỗi lần build đổi CDHash → macOS quên quyền Accessibility đã cấp.
 # Script này: build → thoát app cũ → reset entry TCC stale → mở app mới.
 # Sau khi chạy, bạn chỉ cần bật lại toggle VNKey trong
-# System Settings → Privacy & Security → Accessibility, rồi bấm "Khởi động lại VNKey".
+# System Settings → Privacy & Security → Accessibility, rồi bấm "Khởi động lại" trong cửa sổ VNKey.
 #
 # Dùng: ./retest.sh            (build release, khuyến nghị)
 #       ./retest.sh --debug    (build debug, nhanh hơn khi lặp nhiều)
@@ -41,7 +41,7 @@ cat <<'EOF'
 ────────────────────────────────────────────────────────────
   Còn 2 bước TAY (macOS bắt buộc, không script được):
   1. System Settings → Privacy & Security → Accessibility → bật VNKey
-  2. Trong cửa sổ VNKey → bấm "Khởi động lại VNKey"
+  2. Trong cửa sổ VNKey → bấm "Khởi động lại"
   Sau đó gõ:  vieejt<space>  → việt
 ────────────────────────────────────────────────────────────
 EOF

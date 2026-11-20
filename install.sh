@@ -54,4 +54,4 @@ open "$APP"
 
 say "Đã cài VNKey $version vào $APP. Còn 2 bước:"
 say "  1. System Settings → Privacy & Security → Accessibility → bật VNKey"
-say "  2. Bấm \"Khởi động lại VNKey\" trong cửa sổ VNKey"
+say "  2. Trong cửa sổ VNKey, bấm \"Khởi động lại\""

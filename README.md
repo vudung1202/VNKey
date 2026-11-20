@@ -28,7 +28,7 @@ Lệnh tải bản mới nhất, cài hoặc thay bản cũ trong **Applications
 Sau đó:
 
 1. Vào **System Settings → Privacy & Security → Accessibility**, bật **VNKey**.
-2. Bấm **Khởi động lại VNKey** trong cửa sổ VNKey.
+2. Trong cửa sổ VNKey, bấm **Khởi động lại**.
 
 Chạy lại lệnh trên để cập nhật. Cấu hình và bảng gõ tắt được giữ nguyên.
 
@@ -64,7 +64,7 @@ Chạy lại lệnh trên để cập nhật. Cấu hình và bảng gõ tắt �
 3. Vào **System Settings → Privacy & Security → Accessibility**, bật **VNKey**.
    Có thể mở trang này bằng nút **Mở cài đặt Trợ năng** trong ứng dụng.
 
-4. Nhấn **Khởi động lại VNKey** trên màn hình cấp quyền. VNKey cần quyền này
+4. Nhấn **Khởi động lại** trên màn hình cấp quyền. VNKey cần quyền này
    để nhận và chèn phím vào các ứng dụng khác.
 
 **Sau mỗi lần build lại:** chữ ký ad-hoc thay đổi nên macOS có thể không còn
