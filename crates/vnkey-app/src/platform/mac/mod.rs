@@ -1,6 +1,7 @@
 //! macOS platform layer: CGEventTap keystroke interception + Vietnamese text
 //! injection.
 
+pub(crate) mod autostart;
 pub(crate) mod ffi;
 mod inject;
 pub(crate) mod hotkey;

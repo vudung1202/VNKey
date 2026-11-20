@@ -93,6 +93,9 @@ pub(crate) fn apply_and_broadcast(cx: &mut App, mutate: impl FnOnce(Settings) ->
     if settings.show_icon_on_dock != before.show_icon_on_dock {
         crate::app::set_dock_icon(settings.show_icon_on_dock, cx);
     }
+    if settings.run_on_startup != before.run_on_startup {
+        crate::app::sync_autostart(settings.run_on_startup, cx);
+    }
 
     crate::app::broadcast(settings, cx);
     settings

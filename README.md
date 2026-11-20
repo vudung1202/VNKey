@@ -155,6 +155,10 @@ VNKey lưu dữ liệu tại `~/Library/Application Support/VNKey/`:
 Thoát VNKey trước khi sao lưu hoặc chỉnh sửa trực tiếp các tệp này. Các giá
 trị đã lưu được ưu tiên hơn mặc định của phiên bản mới.
 
+Khi bật **Khởi động cùng macOS** (mặc định bật), VNKey tạo
+`~/Library/LaunchAgents/com.vnkey.app.plist` trỏ tới bản đang chạy, và cập nhật
+tệp này mỗi lần mở nếu app bị di chuyển. Tắt tùy chọn thì tệp bị xoá.
+
 ## Phát triển
 
 ### Chạy và đóng gói

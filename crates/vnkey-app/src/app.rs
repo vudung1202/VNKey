@@ -97,6 +97,8 @@ pub fn run() {
         let handles = crate::platform::mac::start(sender.clone());
         cx.set_global(Core { engine: handles.engine, config: handles.config });
         cx.set_global(UiState { settings, macros_rev: 0 });
+        // Re-point the login item at this copy, in case the app was moved.
+        sync_autostart(settings.run_on_startup, cx);
         crate::ui::apply_theme(settings.theme, cx);
         crate::tray::build(&settings, sender, cx);
 
@@ -134,6 +136,16 @@ pub(crate) fn broadcast(settings: Settings, cx: &mut App) {
 /// Tell windows showing the macro table to reload it.
 pub(crate) fn macros_changed(cx: &mut App) {
     cx.update_global::<UiState, _>(|ui, _| ui.macros_rev += 1);
+}
+
+/// Make "Khởi động cùng macOS" true: add or remove VNKey's login item.
+pub(crate) fn sync_autostart(enabled: bool, cx: &App) {
+    let exe = std::env::current_exe().unwrap_or_default();
+    let app_path = cx.app_path().unwrap_or_else(|_| exe.clone());
+    let command = crate::platform::mac::autostart::launch_command(&app_path, &exe);
+    if let Err(err) = crate::platform::mac::autostart::sync(enabled, &command) {
+        eprintln!("VNKey: could not update the login item: {err}");
+    }
 }
 
 pub(crate) fn set_dock_icon(show: bool, cx: &mut App) {
