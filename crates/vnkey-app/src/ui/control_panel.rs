@@ -7,7 +7,6 @@ use std::time::Duration;
 use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants as _};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::select::{Select, SelectEvent, SelectState};
-use gpui_kit::component::tab::{Tab, TabBar};
 use gpui_kit::component::{Icon, IndexPath, Sizable as _, WindowExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -219,9 +218,6 @@ impl ControlPanel {
         } else {
             format!("{chord} {}", sidebar::SWITCH_HINT_SUFFIX)
         };
-        // The one hue on the screen: Vietnamese is on.
-        let dot = div().size(px(6.)).rounded_full().bg(if vietnamese { p.brand } else { p.muted });
-
         v_flex()
             .w(px(SIDEBAR_WIDTH))
             .h_full()
@@ -246,16 +242,7 @@ impl ControlPanel {
                 v_flex()
                     .gap_1p5()
                     .child(
-                        TabBar::new("language")
-                            .segmented()
-                            .small()
-                            .w_full()
-                            // The theme's track is the ground's own grey; one step darker shows it.
-                            .bg(p.active)
-                            .selected_index(if vietnamese { 0 } else { 1 })
-                            .on_click(|ix: &usize, _, cx| commands::set_language(cx, if *ix == 0 { 1 } else { 0 }))
-                            .child(Tab::new().label(top_bar::VIETNAMESE).prefix(dot).flex_1())
-                            .child(Tab::new().label(top_bar::ENGLISH).flex_1()),
+                        language_switch(vietnamese, p),
                     )
                     .child(div().px_1().text_xs().text_color(p.muted).child(hint)),
             )
@@ -579,7 +566,7 @@ fn render_about(p: &Palette) -> AnyElement {
                             .child(div().text_sm().text_color(p.muted).child(version)),
                     )
                     .into_any_element(),
-                div().py_3().text_sm().child(about_tab::CREDIT).into_any_element(),
+                div().py_3().text_sm().child(about_tab::LICENSE_NOTE).into_any_element(),
                 h_flex()
                     .py_2()
                     .child(
@@ -647,6 +634,43 @@ fn render_permission_gate(granted: bool, p: &Palette) -> impl IntoElement {
                 p,
             )),
     )
+}
+
+/// Tiếng Việt | English, drawn here rather than with a `TabBar`: a tab's
+/// prefix sits outside its selected pill, which pushed the dot off the segment.
+fn language_switch(vietnamese: bool, p: &Palette) -> impl IntoElement {
+    let p = *p;
+    let segment = move |id: &'static str, selected: bool, language: u8| {
+        h_flex()
+            .id(id)
+            .flex_1()
+            .h(px(26.))
+            .justify_center()
+            .gap_1p5()
+            .rounded(px(6.))
+            .text_sm()
+            .when(selected, |this| this.bg(p.surface).text_color(p.text).font_weight(FontWeight::MEDIUM))
+            .when(!selected, |this| {
+                let text = p.text;
+                this.text_color(p.muted).cursor_pointer().hover(move |this| this.text_color(text))
+            })
+            .on_click(move |_, _, cx| {
+                if !selected {
+                    commands::set_language(cx, language);
+                }
+            })
+    };
+    // The one hue on the screen: Vietnamese is on.
+    let dot = div().size(px(6.)).rounded_full().bg(if vietnamese { p.brand } else { p.muted });
+
+    h_flex()
+        .w_full()
+        .p(px(2.))
+        .gap(px(2.))
+        .rounded(px(8.))
+        .bg(p.active)
+        .child(segment("vi", vietnamese, 1).child(dot).child(top_bar::VIETNAMESE))
+        .child(segment("en", !vietnamese, 0).child(top_bar::ENGLISH))
 }
 
 fn nav_row(label: &'static str, icon: &'static str, active: bool, p: &Palette) -> Stateful<Div> {

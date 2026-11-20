@@ -111,7 +111,7 @@ pub mod about_tab {
     pub const APP_NAME: &str = "VNKey";
     pub const VERSION_PREFIX: &str = "Phiên bản";
     pub const DESCRIPTION: &str = "Bộ gõ tiếng Việt cho macOS.";
-    pub const CREDIT: &str = "Thuật toán gõ tham khảo từ OpenKey của Mai Vũ Tuyên.";
+    pub const LICENSE_NOTE: &str = "Phần mềm mã nguồn mở, phát hành theo giấy phép GPL-3.0.";
     pub const SOURCE_CODE: &str = "Mã nguồn...";
     pub const SOURCE_CODE_URL: &str = "https://github.com/vudung1202/VNKey";
 }
