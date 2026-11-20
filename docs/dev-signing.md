@@ -1,7 +1,7 @@
 # Dev code signing
 
-VNKey builds with an ad-hoc signature by default: `tauri.conf.json` sets
-`signingIdentity` to `"-"`, which ad-hoc signs the whole app bundle rather
+VNKey builds with an ad-hoc signature by default: `scripts/bundle.sh` runs
+`codesign --deep --sign -`, which ad-hoc signs the whole app bundle rather
 than leaving only the linker's signature on the executable. Without that,
 the bundle has no sealed resources, and a downloaded copy is reported as
 "damaged" with no way to open it short of `xattr -cr`; with it, Gatekeeper
@@ -11,15 +11,14 @@ for a one-off build, but ad-hoc signatures
 change on every rebuild, and macOS ties TCC-gated permission grants
 (Accessibility, which VNKey requests to intercept/inject keys - see Task 8)
 to a specific code signature. In practice that means: every time you
-`cargo build`/`npx tauri build` again, macOS forgets the Accessibility
+`scripts/bundle.sh` again, macOS forgets the Accessibility
 grant and you have to re-approve it in System Settings before VNKey can
 type again.
 
 If you're iterating locally and don't want to re-grant Accessibility after
 every rebuild, create a stable self-signed identity below and point
-`signingIdentity` at it **in your own local checkout** (do not commit that
-change - the shipped config stays ad-hoc per the current product
-decision).
+`VNKEY_SIGN_IDENTITY` at it **in your own shell** (the shipped build stays
+ad-hoc per the current product decision).
 
 ## Create a self-signed "VNKey Dev" certificate
 
@@ -43,22 +42,17 @@ decision).
 
    You should see `VNKey Dev` listed with a valid (non-zero) identity count.
 
-## Enable signing in tauri.conf.json
+## Sign with it
 
-Once the certificate exists, replace the `"-"` in `src-tauri/tauri.conf.json`:
+Once the certificate exists, export it before building (e.g. in your shell
+profile):
 
-```json
-{
-  "bundle": {
-    "macOS": {
-      "signingIdentity": "VNKey Dev"
-    }
-  }
-}
+```sh
+export VNKEY_SIGN_IDENTITY="VNKey Dev"
 ```
 
-`npx tauri build` will then sign the app bundle with this identity instead
-of falling back to an ad-hoc signature.
+`scripts/bundle.sh` (and so `./retest.sh`) will then sign the app bundle with
+this identity instead of falling back to an ad-hoc signature.
 
 ## Migrating to a stable identity later
 

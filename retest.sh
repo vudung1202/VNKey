@@ -22,9 +22,9 @@ fi
 
 echo "▸ Build VNKey ($MODE)…"
 if [ "$MODE" = "debug" ]; then
-  npx tauri build --debug
+  scripts/bundle.sh --debug
 else
-  npx tauri build
+  scripts/bundle.sh
 fi
 
 echo "▸ Thoát VNKey đang chạy (nếu có)…"

@@ -37,18 +37,18 @@ Chạy lại lệnh trên để cập nhật. Cấu hình và bảng gõ tắt �
 ### Yêu cầu
 
 - Máy Mac dùng Apple Silicon hoặc Intel.
-- Rust stable mới nhất và Cargo, cài qua [rustup](https://rustup.rs).
-- Node.js 22.12+ và npm; cũng hỗ trợ nhánh Node.js 20 từ phiên bản 20.19.
+- Rust và Cargo, cài qua [rustup](https://rustup.rs). Phiên bản Rust được ghim
+  trong `rust-toolchain.toml` (gpui-kit cần Rust mới); rustup tự tải khi build.
 - Xcode Command Line Tools. Nếu chưa có, chạy `xcode-select --install`.
+  Không cần cài Xcode đầy đủ.
 
 ### Build và mở ứng dụng
 
-1. Tải mã nguồn và cài các gói giao diện:
+1. Tải mã nguồn:
 
    ```sh
    git clone https://github.com/vudung1202/VNKey.git
    cd VNKey
-   npm ci
    ```
 
 2. Build bản release và mở VNKey:
@@ -87,7 +87,7 @@ menu **V/E**.
 
 ### Gõ xen kẽ tiếng Anh
 
-Trong tab **Bộ gõ**, hai tùy chọn sau mặc định được bật:
+Trong mục **Bộ gõ** (nhóm **Từ tiếng Anh**), hai tùy chọn sau mặc định được bật:
 
 - **Tự động khôi phục từ tiếng Anh:** trả lại phím gốc khi nhận diện được
   từ tiếng Anh, trong lúc gõ hoặc khi kết thúc từ.
@@ -100,14 +100,14 @@ tiếng Anh. Khi gõ một đoạn tiếng Anh dài, dùng **⌥Z** để chuy�
 
 ### Gõ tắt và gõ nhanh
 
-1. Mở tab **Gõ tắt**, bật **Cho phép gõ tắt**.
-2. Chọn **Bảng gõ tắt...** để thêm từ viết tắt và nội dung thay thế.
+1. Mở mục **Gõ tắt** (hoặc **Gõ tắt...** trên menu V/E), bật **Cho phép gõ tắt**.
+2. Nhập từ viết tắt và nội dung thay thế ngay dưới bảng gõ tắt, nhấn **Thêm**.
 3. Gõ từ viết tắt trong ứng dụng đích rồi nhấn dấu cách để mở rộng.
 
-Bảng gõ tắt có nút nhập/xuất tệp `.txt`. Khi nhập, ứng dụng hỏi có giữ lại
+Mục Gõ tắt có nút **Nạp từ file...**/**Xuất ra file...** cho tệp `.txt`. Khi nhập, ứng dụng hỏi có giữ lại
 các mục hiện tại hay thay thế chúng.
 
-Các tùy chọn gõ nhanh nằm trong cùng tab và mặc định tắt:
+Các tùy chọn gõ nhanh nằm trong cùng mục và mặc định tắt:
 
 - **Gõ nhanh:** `cc→ch`, `gg→gi`, `kk→kh`, `nn→ng`, `qq→qu`, `pp→ph`,
   `tt→th`, `uu→ươ`.
@@ -118,11 +118,12 @@ Các tùy chọn gõ nhanh nằm trong cùng tab và mặc định tắt:
 
 1. Sao chép đoạn văn bản cần chuyển mã.
 2. Mở **Bảng điều khiển → Chuyển mã**, chọn bảng mã nguồn và bảng mã đích.
-3. Chọn thêm chuyển hoa/thường hoặc bỏ dấu nếu cần, rồi nhấn **Chuyển mã**.
+3. Chọn thêm chuyển hoa/thường hoặc bỏ dấu nếu cần (ô xem trước cho thấy kết
+   quả), rồi nhấn **Chuyển mã clipboard**.
 4. Dán kết quả từ Clipboard vào tài liệu.
 
 Thao tác này thay nội dung văn bản trong Clipboard. Có thể đặt **Phím chuyển
-mã nhanh** trong cùng tab để dùng lại cấu hình chuyển mã mà không mở bảng.
+mã nhanh** trong cùng mục để dùng lại cấu hình chuyển mã mà không mở bảng.
 
 ## Xử lý sự cố và giới hạn
 
@@ -164,14 +165,6 @@ trị đã lưu được ưu tiên hơn mặc định của phiên bản mới.
 export PATH="$HOME/.cargo/bin:$PATH"
 ```
 
-Chạy ứng dụng ở chế độ phát triển, tự tải lại khi sửa giao diện:
-
-```sh
-npm run tauri dev
-```
-
-Chỉ chạy `npm run dev` sẽ mở máy chủ Vite, không khởi động bộ gõ macOS.
-
 Khi cần build lại và kiểm thử bộ gõ thực tế, dùng script xử lý quyền:
 
 ```sh
@@ -183,18 +176,18 @@ Bản debug nằm ở `target/debug/bundle/macos/VNKey.app`.
 Nếu chỉ cần đóng gói, không mở ứng dụng:
 
 ```sh
-npm run tauri build
+scripts/bundle.sh
 ```
 
-Bản release nằm ở `target/release/bundle/macos/VNKey.app`; tệp `.dmg` nằm
-trong `target/release/bundle/dmg/` nếu bước đóng gói DMG thành công. Build
-thông thường theo kiến trúc máy đang chạy, không mặc định tạo bản universal.
+Bản release nằm ở `target/release/bundle/macos/VNKey.app`; tệp
+`VNKey_<phiên bản>_aarch64.dmg` nằm trong `target/release/bundle/dmg/`. Build
+theo kiến trúc máy đang chạy, không tạo bản universal.
 
 Khi phát hành, tải kèm `install.sh` lên release cùng file `.dmg`, nếu không lệnh cài
 nhanh trả về lỗi 404: `gh release upload v<phiên bản> install.sh`.
 
-Cấu hình mặc định ký ad-hoc cả gói app (`"signingIdentity": "-"`), nên bản
-tải về mở được qua **System Settings → Privacy & Security → Open Anyway** mà
+`scripts/bundle.sh` mặc định ký ad-hoc cả gói app (`codesign --deep -s -`), nên
+bản tải về mở được qua **System Settings → Privacy & Security → Open Anyway** mà
 không cần `xattr`. Hướng dẫn dùng chứng chỉ tự-ký khi phát triển nằm trong
 [docs/dev-signing.md](docs/dev-signing.md).
 
@@ -203,11 +196,9 @@ không cần `xattr`. Hướng dẫn dùng chứng chỉ tự-ký khi phát tri�
 ```sh
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
-npm run build
 ```
 
-Các lệnh lần lượt chạy test Rust, kiểm tra lint Rust, rồi typecheck và build
-giao diện. Có thể kiểm thử riêng engine mà không cần chạy ứng dụng:
+Các lệnh lần lượt chạy test Rust và kiểm tra lint Rust (cả giao diện). Có thể kiểm thử riêng engine mà không cần chạy ứng dụng:
 
 ```sh
 cargo test -p vnkey-engine
@@ -221,12 +212,14 @@ các phần logic của tầng macOS. Việc bắt/chèn phím, phím tắt hệ
 ### Cấu trúc dự án
 
 ```text
-crates/vnkey-engine/   Engine thuần Rust, không phụ thuộc Tauri hay macOS
-src-tauri/src/        Tầng macOS, lệnh Tauri, cấu hình và menu V/E
-src/                  Giao diện React và TypeScript trên Tauri v2
-docs/                 Kiến trúc, kiểm thử thủ công và hướng dẫn ký ứng dụng
+crates/vnkey-engine/      Engine thuần Rust, không phụ thuộc giao diện hay macOS
+crates/vnkey-app/src/     Ứng dụng macOS: tầng hệ thống, cấu hình, menu V/E
+crates/vnkey-app/src/ui/  Giao diện GPUI (gpui-kit)
+crates/vnkey-app/resources/  Info.plist và icon cho gói .app
+scripts/bundle.sh         Đóng gói VNKey.app, ký và tạo .dmg
+docs/                     Kiến trúc, kiểm thử thủ công và hướng dẫn ký ứng dụng
 ```
 
 Phần tích hợp AppKit/CoreGraphics và `CGEventTap` nằm trong
-`src-tauri/src/platform/mac/`. Luồng xử lý phím và ranh giới engine/ứng dụng
+`crates/vnkey-app/src/platform/mac/`. Luồng xử lý phím và ranh giới engine/ứng dụng
 được mô tả trong [docs/architecture.md](docs/architecture.md).

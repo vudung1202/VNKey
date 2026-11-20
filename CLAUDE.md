@@ -1,7 +1,7 @@
 # CLAUDE.md - hướng dẫn cho agent làm việc trên VNKey
 
 VNKey là bộ gõ tiếng Việt cho macOS: engine thuần Rust + tầng macOS
-(CGEventTap/objc2) + UI Tauri v2 & React/TypeScript.
+(CGEventTap/objc2) + UI GPUI qua gpui-kit (Rust thuần, không WebView/TS).
 
 README mô tả tính năng và cách build cho người dùng. File này chỉ ghi những
 thứ **không tự suy ra được từ code** - ranh giới kiến trúc, các bẫy đã trả giá
@@ -12,25 +12,33 @@ thứ **không tự suy ra được từ code** - ranh giới kiến trúc, các
 ```sh
 export PATH="$HOME/.cargo/bin:$PATH"     # BẮT BUỘC, cargo không có sẵn trong PATH
 
-cargo test --workspace                    # 239 test, phải xanh trước khi commit
+cargo test --workspace                    # 242 test, phải xanh trước khi commit
 cargo clippy --workspace --all-targets -- -D warnings
-npm run build                             # tsc + vite (typecheck UI)
-npx tauri build --debug                   # ra target/debug/bundle/macos/VNKey.app
+scripts/bundle.sh --debug                 # ra target/debug/bundle/macos/VNKey.app
 ./retest.sh                               # build + reset quyền TCC + mở app
 ```
+
+Rust được ghim ở `rust-toolchain.toml`: gpui-kit dùng API chỉ có từ Rust mới
+(1.97 build lỗi). Nâng gpui-kit thì kiểm lại bản Rust nó cần.
 
 ## Ranh giới kiến trúc (quy tắc quan trọng nhất)
 
 ```
-crates/vnkey-engine/   Thuần Rust, KHÔNG biết gì về Tauri/macOS.
-                       Test độc lập bằng golden + unit test.
-src-tauri/src/         Tầng macOS + Tauri. platform/mac/ là chỗ duy nhất
-                       chạm AppKit/CoreGraphics.
-src/                   UI React, route theo window label trong main.tsx.
+crates/vnkey-engine/        Thuần Rust, KHÔNG biết gì về UI/macOS.
+                            Test độc lập bằng golden + unit test.
+crates/vnkey-app/src/       App macOS. platform/mac/ là chỗ duy nhất chạm
+                            CGEventTap/TIS/NSWorkspace; tray.rs dùng
+                            tray-icon/muda (GPUI không có tray).
+crates/vnkey-app/src/ui/    UI GPUI (gpui-kit): một cửa sổ, sidebar 5 view.
 ```
 
-Đừng để `vnkey-engine` phụ thuộc Tauri/macOS. Mọi thứ liên quan hệ điều hành
-nằm trong `src-tauri`.
+Đừng để `vnkey-engine` phụ thuộc UI/macOS. Mọi thứ liên quan hệ điều hành
+nằm trong `crates/vnkey-app`.
+
+**Về main thread chỉ qua `AppEvent`.** Tap thread và observer NSWorkspace không
+có `&mut App`; chúng gửi `app::AppEvent` qua `AppSender` (thay cho
+`run_on_main_thread` của Tauri), một task GPUI trên main thread xử lý. Đừng
+giữ `App`/entity GPUI ngoài main thread.
 
 ## Bẫy đã trả giá để biết
 
@@ -96,14 +104,15 @@ chữ đôi bị nuốt" từng phá đúng thói quen này;
 `crates/vnkey-engine/data/` là sinh ra (`gen_wordlists.py`), đừng sửa tay;
 nguồn và giấy phép ở `data/README.md`.
 
-## Thêm một tuỳ chọn mới: phải đi hết 6 tầng
+## Thêm một tuỳ chọn mới: phải đi hết 5 tầng
 
 1. `crates/vnkey-engine/src/options.rs` - `EngineOptions` + default
-2. `src-tauri/src/settings/mod.rs` - `Settings` + default + `to_engine_options`
-3. `src-tauri/src/state.rs` - **chỉ khi** tap thread cần đọc trên hot path
-4. `src/lib/types.ts` - mirror kiểu TS
-5. `src/lib/strings.ts` - nhãn tiếng Việt
-6. `src/components/ControlPanel/TypingTab.tsx` (hoặc tab tương ứng) - hàng UI
+2. `crates/vnkey-app/src/settings/mod.rs` - `Settings` + default + `to_engine_options`
+3. `crates/vnkey-app/src/state.rs` - **chỉ khi** tap thread cần đọc trên hot path
+4. `crates/vnkey-app/src/ui/strings.rs` - nhãn tiếng Việt
+5. `crates/vnkey-app/src/ui/control_panel.rs` (gõ tắt: `ui/macro_editor.rs`) -
+   một dòng `field_row(...)` trong section tương ứng của view (UI đọc thẳng
+   `Settings`, không còn kiểu mirror)
 
 **Muốn một tuỳ chọn mặc định BẬT cho cả máy đã cài:** dùng
 `#[serde(default = "default_true")]`. Lật default của field cũ **không có tác
@@ -113,13 +122,20 @@ mới (khoá vắng mặt) mới nhận default. Có test ghim điều này tron
 
 ## Quy ước
 
-- **Mọi chuỗi tiếng Việt hiển thị nằm ở `src/lib/strings.ts`.** Không hardcode
-  trong component.
+- **Mọi chuỗi tiếng Việt của cửa sổ nằm ở `ui/strings.rs`.** Không hardcode
+  trong view. (Nhãn menu V/E nằm cạnh id menu trong `tray.rs`.)
 - **Không dùng em-dash (U+2014) hay en-dash (U+2013)** ở bất cứ đâu, kể cả
   comment. Dùng `-`. Repo hiện sạch (grep ra 0), giữ nguyên như vậy.
-- **Theme dùng `data-theme` trên `<html>`**, không dùng `@media
-  (prefers-color-scheme)`. `lib/theme.ts` quyết định, script trong
-  `index.html` chống nháy khi khởi động.
+- **Theme đi qua `ui::apply_theme`** (`Settings::theme`: 0 theo macOS, 1 sáng,
+  2 tối) dùng `Theme::change`/`sync_system_appearance` của gpui-kit. Đừng sửa
+  `Theme::global_mut` trực tiếp: nó không refresh các cửa sổ.
+- **Giao diện theo style "achromatic ledger"** (`.taste-skill/notes.md`): chrome
+  không màu, nút chính đen, panel trắng trên nền xám nhạt. Màu duy nhất là xanh
+  của icon (`Palette::brand`), chỉ cho trạng thái đang gõ tiếng Việt và kết quả
+  trong các ô xem trước. Đừng tô màu thương hiệu lên nút, tab hay sidebar.
+- **UI là gương thụ động.** Mọi thay đổi cấu hình đi qua
+  `commands::apply_and_broadcast` -> thay global `UiState` -> các view
+  `observe_global` vẽ lại. Đừng giữ bản sao `Settings` riêng trong view.
 - **Menu bar chỉ hiện chữ V/E, không icon** - quyết định sản phẩm, cố ý
   (`tray.rs`).
 - Comment giải thích **tại sao**, không mô tả lại code.

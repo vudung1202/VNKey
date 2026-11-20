@@ -11,33 +11,34 @@ theo thời gian.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  src/  (React + TypeScript, chạy trong WebView)             │
-│  4 cửa sổ, route theo window label trong main.tsx           │
+│  crates/vnkey-app/src/ui/  (GPUI qua gpui-kit)              │
+│  2 cửa sổ: Bảng điều khiển, Gõ tắt                          │
 └───────────────▲─────────────────────────┬───────────────────┘
-                │  event: settings-changed │  IPC: invoke()
-                │         status-changed   │  ~20 lệnh
+                │  observe_global          │  gọi hàm Rust
+                │  (UiState)               │  commands::*
 ┌───────────────┴─────────────────────────▼───────────────────┐
-│  src-tauri/src/  (Rust, tầng macOS + Tauri)                 │
+│  crates/vnkey-app/src/  (Rust, tầng macOS)                  │
 │                                                              │
 │   platform/mac/   CGEventTap, inject, hotkey, TIS, quirks   │
 │   state.rs        EngineCore (Mutex) + SharedConfig (atomic)│
-│   commands.rs     IPC          tray.rs    menu 15 mục       │
-│   settings/       JSON + blob  events.rs  emit lên UI       │
+│   commands.rs     hành động   tray.rs    menu V/E (muda)    │
+│   settings/       JSON + blob app.rs     AppEvent, UiState  │
 └───────────────────────────┬─────────────────────────────────┘
                             │  handle_event() -> &HookState
 ┌───────────────────────────▼─────────────────────────────────┐
-│  crates/vnkey-engine/  (Rust thuần, không biết Tauri/macOS) │
+│  crates/vnkey-engine/  (Rust thuần, không biết UI/macOS)    │
 │  bảng mã, xử lý phím, chính tả, macro, smart-switch, convert│
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**Ranh giới cứng:** `vnkey-engine` không phụ thuộc Tauri hay macOS. Nó nhận
+**Ranh giới cứng:** `vnkey-engine` không phụ thuộc UI hay macOS. Nó nhận
 `(sự kiện phím, keycode, caps)` và trả về một `HookState` mô tả *phải làm gì*,
 chứ không tự làm. Nhờ vậy engine test được độc lập bằng golden test.
 
 ## 2. Khởi động
 
-`lib.rs::run` → Tauri `setup` → `platform::start` (`platform/mac/mod.rs`):
+`app.rs::run` → callback khởi chạy của GPUI → `platform::mac::start`
+(`platform/mac/mod.rs`):
 
 1. `Settings::load()` - đọc `settings.json`, lần đầu thì ghi mặc định. **Phải
    xong trước khi dựng engine**, để phím đầu tiên đã thấy cấu hình thật.
@@ -51,8 +52,10 @@ chứ không tự làm. Nhờ vậy engine test được độc lập bằng gol
    và `tis::install_input_source_observer`.
 7. `tap::spawn` - tạo thread riêng chạy CFRunLoop cho CGEventTap.
 
-Sau đó `lib.rs` dựng tray, và tự hiện Bảng điều khiển nếu thiếu quyền hoặc
-người dùng bật `show_ui_on_startup`.
+Sau đó `app.rs` dựng tray (`tray::build`), chạy task main-thread xử lý
+`AppEvent`, và tự mở Bảng điều khiển nếu thiếu quyền hoặc người dùng bật
+`show_ui_on_startup`. `show_icon_on_dock` tắt thì app khởi động ở chế độ
+`Accessory` (`with_windowing(Headless)`) để không loé icon Dock.
 
 ## 3. Luồng một phím (phần lõi)
 
@@ -103,7 +106,7 @@ Ba lý do:
 
 | Thread | Được chạm | KHÔNG được chạm |
 |---|---|---|
-| **Main** | AppKit, NSWorkspace, TIS/TSM, tray, cửa sổ | - |
+| **Main** | AppKit, NSWorkspace, TIS/TSM, tray, GPUI (`App`, cửa sổ) | - |
 | **Tap** | engine (dưới khoá), CGEvent post, atomics | **AppKit, TIS/TSM, NSWorkspace** |
 
 Quy tắc: **mọi API AppKit/Carbon chỉ được gọi trên main thread.** Vi phạm gây
@@ -116,9 +119,11 @@ Hai giá trị main-thread-only được **cache** để tap thread đọc lock-
 - `SharedConfig::input_is_english` - do `tis.rs::install_input_source_observer`
   cập nhật khi input source đổi.
 
-Chiều ngược lại (tap thread cần đụng AppKit) đi qua
-`app.run_on_main_thread(...)`: ví dụ hotkey đổi ngôn ngữ →
-`tray::notify_language_switched` → cập nhật tray + emit event trên main thread.
+Chiều ngược lại (tap thread hoặc observer cần đụng tray/UI) đi qua
+`AppSender::send(AppEvent::..)` (`app.rs`): một task GPUI trên main thread
+nhận và xử lý với `&mut App`. Ví dụ hotkey đổi ngôn ngữ →
+`AppEvent::LiveChange` → `tray::sync_after_live_change` → cập nhật tray +
+`UiState` + lưu đĩa. Gửi là fire-and-forget, tap thread không bao giờ chờ.
 
 ## 5. Hai loại state chia sẻ, vì sao
 
@@ -236,10 +241,11 @@ thái trung gian *không hợp lệ* trên đường tới từ hợp lệ (`uwo
 
 Có **ba nguồn** đổi cấu hình, và chúng phải không giẫm lên nhau:
 
-1. **UI** → lệnh IPC → `commands::apply_and_broadcast`
+1. **UI** → `commands::apply_and_broadcast` (gọi hàm trực tiếp)
 2. **Tray** → cùng `apply_and_broadcast`
 3. **Hotkey / smart-switch** → đổi thẳng atomic trên tap thread, **không** ghi
-   đĩa ngay → sau đó `tray::sync_after_live_change` trên main thread
+   đĩa ngay → gửi `AppEvent::LiveChange` → `tray::sync_after_live_change`
+   trên main thread
 
 Vấn đề: (1) và (2) đọc `Settings::load()` từ đĩa, trong khi (3) chỉ đổi RAM.
 Nếu ghép ngây thơ thì một lần đổi từ UI sẽ **ghi đè ngược** thay đổi do hotkey.
@@ -258,24 +264,32 @@ Lưu trữ: `~/Library/Application Support/VNKey/` gồm `settings.json` (serde)
 `macros.bin`, `smart_switch.bin` (blob nhị phân riêng, không nhét vào JSON vì
 lớn và ghi thêm liên tục).
 
-## 9. UI đa cửa sổ
+## 9. UI (GPUI)
 
-Bốn cửa sổ khai báo sẵn trong `tauri.conf.json` (`visible: false`), được
-show/hide chứ **không** tạo/huỷ - đóng bằng nút đỏ chỉ ẩn đi
-(`lib.rs::on_window_event`), nếu không thì mục tray tương ứng sẽ không mở lại
-được gì.
+Một cửa sổ (`ui/control_panel.rs`): sidebar bên trái (icon, công tắc Tiếng
+Việt/English, 5 mục: Bộ gõ, Gõ tắt, Chuyển mã, Hệ thống, Thông tin), view của
+mục đang chọn bên phải. View Gõ tắt là entity riêng (`ui/macro_editor.rs`).
+Mục "Gõ tắt..." trên menu V/E mở cửa sổ ở view đó (`ui::open_macro`). Cửa sổ
+được **mở khi cần và huỷ khi đóng**; macOS giữ app chạy khi không còn cửa sổ
+nào (`QuitMode` mặc định). Mở lại khi đang mở thì chỉ đưa lên trước và đổi
+view. Bấm Dock khi không có cửa sổ nào (`on_reopen`) mở Bảng điều khiển.
+Chưa có quyền Trợ năng lúc mở cửa sổ thì cả cửa sổ là màn 2 bước cấp quyền.
 
-`main.tsx` route theo `getCurrentWindow().label`:
-`settings` → ControlPanel · `macro` → MacroEditor · `convert` → ConvertTool ·
-`about` → About.
+UI là **gương thụ động**: mọi hành động đổi cấu hình gọi
+`commands::apply_and_broadcast`, hàm này thay global `UiState` (`app.rs`);
+mỗi view `observe_global::<UiState>` rồi vẽ lại. Thay đổi từ tray, hotkey hay
+smart-switch đi cùng đường đó (`app::broadcast`), nên UI tự cập nhật mà không
+cần code đồng bộ riêng. Riêng các `Select` giữ state nội bộ nên
+`ControlPanel::sync_selects` đặt lại index khi `UiState` đổi.
 
-UI là **gương thụ động**: mọi lệnh mutate đều persist + emit `settings-changed`
-ở phía Rust; các cửa sổ chỉ lắng nghe event đó và vẽ lại. Nhờ vậy thay đổi từ
-tray/hotkey tự động hiện lên UI mà không cần code đồng bộ riêng.
+Ô ghi phím tắt (`ui/hotkey.rs`): GPUI không cho keycode thô, nên phím in được
+quy về vị trí QWERTY bằng `layout::char_to_qwerty_keycode` (cùng bảng với
+đường layout-compat). Khi ô đang focus và cửa sổ đang active,
+`SharedConfig::hotkey_recording` bật để tap cho mọi phím đi qua.
 
 ## 10. Bất biến phải giữ
 
-1. `vnkey-engine` không được phụ thuộc Tauri/macOS.
+1. `vnkey-engine` không được phụ thuộc UI/macOS.
 2. AppKit/Carbon/TIS chỉ gọi trên main thread; tap thread đọc cache.
 3. Không giữ khoá engine khi post sự kiện bàn phím.
 4. Đọc `code_table` cùng lần khoá với lúc engine encode.

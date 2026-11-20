@@ -63,7 +63,7 @@ hoá được nếu không có quyền Accessibility.
 
 | # | Thao tác | Kỳ vọng | Trạng thái |
 |---|----------|---------|------------|
-| 4.1 | Thêm macro qua cửa sổ "Gõ tắt" (vd `ko` → `không`), gõ `ko ` trong app khác | tự thay bằng nội dung đầy đủ | auto (thuật toán) + **manual** để xác nhận UI Thêm→lưu→gõ thật hoạt động |
+| 4.1 | Thêm macro qua mục "Gõ tắt" (vd `ko` → `không`), gõ `ko ` trong app khác | tự thay bằng nội dung đầy đủ | auto (thuật toán) + **manual** để xác nhận UI Thêm→lưu→gõ thật hoạt động |
 | 4.2 | Auto-caps macro: gõ `Ko ` (macro `ko`→`không`, bật tự động viết hoa) | ra `Không` | auto |
 | 4.3 | Gõ `KO ` | ra `KHÔNG` (viết hoa toàn bộ) | auto |
 | 4.4 | Macro hoạt động cả khi tắt gõ tiếng Việt (English mode), nếu bật tùy chọn tương ứng | thay thế vẫn chạy | auto |
@@ -109,13 +109,13 @@ hoá được nếu không có quyền Accessibility.
 | # | Thao tác | Kỳ vọng | Trạng thái |
 |---|----------|---------|------------|
 | 8.1 | Mở "Bảng điều khiển" qua tray | cửa sổ hiện, tiêu đề "VNKey - Bảng điều khiển"; nếu chưa cấp quyền Accessibility thì hiện màn hình "Cần cấp quyền Trợ năng" | **manual** |
-| 8.2 | Mở "Gõ tắt" qua tray | cửa sổ "Thiết lập gõ tắt" hiện đủ bảng, form, nút Thêm/Xoá/Nạp/Xuất | **manual** |
-| 8.3 | Mở "Công cụ chuyển mã" qua tray | cửa sổ hiện đủ 2 nhóm tùy chọn, select bảng mã, nút Chuyển mã/Đóng | **manual** |
-| 8.4 | Mở "Giới thiệu" qua tray | cửa sổ hiện tên/mô tả/credit/link, checkbox kiểm tra bản mới | **manual** |
-| 8.5 | Đóng cửa sổ bằng nút đỏ titlebar | ẩn cửa sổ (không thoát app); mở lại qua tray ra đúng cửa sổ cũ | **manual** |
+| 8.2 | Mở "Gõ tắt..." qua tray | Bảng điều khiển mở ở mục Gõ tắt: bảng, form, nút Thêm/Xoá/Nạp/Xuất | **manual** |
+| 8.3 | Mục Chuyển mã | 2 select bảng mã, ô xem trước đổi theo hoa/thường và bỏ dấu, nút Chuyển mã clipboard | **manual** |
+| 8.4 | Mục Thông tin | tên, phiên bản, credit, nút Mã nguồn | **manual** |
+| 8.5 | Đóng cửa sổ bằng nút đỏ titlebar | đóng cửa sổ (không thoát app); mở lại qua tray ra cửa sổ mới | **manual** |
 | 8.6 | Thoát app qua tray "Thoát" | tiến trình kết thúc sạch | **manual** |
 | 8.7 | Gõ tiếng Việt thật vào Chrome/Terminal | ra đúng chữ có dấu | **manual** |
-| 8.8 | Đổi Giao diện (Tự động/Sáng/Tối) trong tab Hệ thống | mọi cửa sổ đổi theme ngay | **manual** |
+| 8.8 | Đổi Giao diện (Tự động/Sáng/Tối) trong mục Hệ thống | cửa sổ đổi theme ngay | **manual** |
 
 ## Ghi chú
 
@@ -125,5 +125,5 @@ hoá được nếu không có quyền Accessibility.
   (sleep/wake, đổi Space, đổi Input Source) mà chỉ người dùng trên máy thật
   mới làm được.
 - Nếu phát hiện lệch hành vi ở bất kỳ mục "manual" nào, ưu tiên nghi ngờ
-  tầng macOS (`src-tauri/src/platform/mac/`) trước; engine (`vnkey-engine`)
+  tầng macOS (`crates/vnkey-app/src/platform/mac/`) trước; engine (`vnkey-engine`)
   đã có test bao phủ khá kỹ.
